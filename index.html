@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>手術室排班工時 · 特休試算</title>
+<style>
+  :root{
+    --ink:#16302C;
+    --ink-soft:#4B615C;
+    --paper:#F5F4EF;
+    --surface:#FFFFFF;
+    --teal:#0F5C56;
+    --teal-deep:#0A403C;
+    --gold:#B8902E;
+    --brick:#A23B32;
+    --good:#3D7A5B;
+    --line:#DCD8CC;
+    --line-strong:#B9B4A4;
+    --shadow: 0 1px 2px rgba(22,48,44,0.06), 0 4px 16px rgba(22,48,44,0.05);
+    --radius: 10px;
+    --font-display: "Iowan Old Style","Palatino Linotype", Georgia, "Noto Serif TC", serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "SFMono-Regular", Consolas, Menlo, "Noto Sans Mono TC", monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  ::selection{ background: rgba(15,92,86,0.18); }
+
+  a{color:var(--teal);}
+
+  .app{max-width:1180px;margin:0 auto;padding:0 20px 64px;}
+
+  .masthead{
+    padding:28px 0 18px;
+    border-bottom:1px solid var(--line-strong);
+    display:flex; align-items:flex-end; justify-content:space-between; gap:16px;
+    flex-wrap:wrap;
+  }
+  .masthead .title-block .eyebrow{
+    font-family:var(--font-mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--teal); margin:0 0 4px;
+  }
+  .masthead h1{
+    font-family:var(--font-display); font-weight:600; font-size:30px; margin:0; color:var(--ink);
+    letter-spacing:.2px;
+  }
+  .masthead .sub{ color:var(--ink-soft); font-size:13.5px; margin-top:6px; max-width:520px; }
+  .ring-mini{ display:flex; align-items:center; gap:10px; }
+
+  nav.tabs{
+    display:flex; gap:2px; margin:22px 0 26px; border-bottom:1px solid var(--line);
+    overflow-x:auto;
+  }
+  nav.tabs button{
+    appearance:none; border:none; background:transparent; cursor:pointer;
+    font-family:var(--font-body); font-size:13.5px; font-weight:600; color:var(--ink-soft);
+    padding:11px 16px; border-bottom:2px solid transparent; white-space:nowrap;
+    letter-spacing:.02em;
+  }
+  nav.tabs button.active{ color:var(--teal-deep); border-bottom-color:var(--gold); }
+  nav.tabs button:hover{ color:var(--ink); }
+
+  section.panel{ display:none; }
+  section.panel.active{ display:block; animation:fade .25s ease; }
+  @keyframes fade{ from{opacity:0; transform:translateY(3px);} to{opacity:1; transform:none;} }
+
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:20px 22px; margin-bottom:18px;
+  }
+  .card h2{ font-family:var(--font-display); font-size:18px; margin:0 0 4px; font-weight:600; }
+  .card .hint{ color:var(--ink-soft); font-size:12.8px; margin:0 0 14px; line-height:1.6; }
+  .card .hint b{ color:var(--ink); }
+
+  .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:11.5px; color:var(--ink-soft); font-weight:600; letter-spacing:.02em; }
+  input[type="text"], input[type="date"], input[type="number"], select{
+    font-family:var(--font-mono); font-size:13px; padding:7px 9px; border:1px solid var(--line-strong);
+    border-radius:6px; background:#fff; color:var(--ink); min-width:0;
+  }
+  input[type="file"]{ font-size:13px; }
+  textarea{ width:100%; box-sizing:border-box; resize:vertical; }
+  button.btn{
+    appearance:none; border:1px solid var(--teal); background:var(--teal); color:#fff;
+    font-family:var(--font-body); font-weight:600; font-size:13px; padding:9px 16px;
+    border-radius:7px; cursor:pointer; letter-spacing:.02em;
+  }
+  button.btn:hover{ background:var(--teal-deep); }
+  button.btn.secondary{ background:transparent; color:var(--teal-deep); }
+  button.btn.ghost{ background:transparent; color:var(--ink-soft); border-color:var(--line-strong); }
+  button.btn.danger{ background:transparent; color:var(--brick); border-color:var(--brick); }
+  button.btn:disabled{ opacity:.45; cursor:not-allowed; }
+  button.icon-btn{
+    border:none; background:transparent; color:var(--ink-soft); cursor:pointer; font-size:13px;
+    padding:3px 6px;
+  }
+  button.icon-btn:hover{ color:var(--brick); }
+
+  table{ border-collapse:collapse; width:100%; font-size:12.8px; }
+  th, td{ border:1px solid var(--line); padding:6px 8px; text-align:center; }
+  th{ background:#EFEEE6; font-weight:600; color:var(--ink-soft); font-size:11.5px; }
+  td.name-cell, th.name-cell{ text-align:left; position:sticky; left:0; background:#fff; z-index:2; }
+  th.name-cell{ background:#EFEEE6; }
+  tbody tr:nth-child(even) td{ background:rgba(15,92,86,0.02); }
+  .table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
+  td input.cell-code{
+    width:44px; text-align:center; border:none; background:transparent; font-family:var(--font-mono);
+    font-size:12.5px; color:var(--ink); padding:2px;
+  }
+  td input.cell-code:focus{ outline:1.5px solid var(--gold); background:#fff; border-radius:4px; }
+  td input.cell-code.leave{ color:var(--brick); font-weight:700; }
+  td input.cell-code.work{ color:var(--teal-deep); }
+  td input.cell-code.rest{ color:var(--ink-soft); }
+  td input.cell-code.unknown{ background:rgba(184,144,46,0.18); }
+
+  .pill{
+    display:inline-block; font-size:11px; font-family:var(--font-mono); padding:2px 8px;
+    border-radius:99px; border:1px solid var(--line-strong); color:var(--ink-soft);
+  }
+  .pill.leave{ color:var(--brick); border-color:var(--brick); }
+  .pill.work{ color:var(--teal-deep); border-color:var(--teal); }
+
+  .status-line{ font-size:12.5px; color:var(--ink-soft); margin-top:8px; min-height:18px; }
+  .status-line.err{ color:var(--brick); }
+  .status-line.ok{ color:var(--good); }
+
+  progress{ width:100%; height:8px; accent-color: var(--teal); }
+
+  .summary-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
+  .stat{
+    border:1px solid var(--line); border-radius:8px; padding:12px 14px; background:#fff;
+  }
+  .stat .k{ font-size:11px; color:var(--ink-soft); font-weight:600; letter-spacing:.03em; text-transform:uppercase; }
+  .stat .v{ font-family:var(--font-mono); font-size:22px; color:var(--teal-deep); margin-top:4px; }
+
+  /* gauge */
+  .gauge-wrap{ display:flex; align-items:center; gap:10px; }
+  .gauge-label{ font-size:11.5px; color:var(--ink-soft); line-height:1.5; }
+  .gauge-label b{ color:var(--ink); font-family:var(--font-mono); font-size:14px; }
+
+  footer.note{ margin-top:26px; font-size:11.5px; color:var(--ink-soft); line-height:1.7; }
+
+  @media (max-width:640px){
+    .masthead h1{ font-size:24px; }
+    .card{ padding:16px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="masthead">
+    <div class="title-block">
+      <p class="eyebrow">手術室 單位排班工具</p>
+      <h1>班表匯入 · 工時與特休試算</h1>
+      <p class="sub">上傳每月排班 PDF，自動讀取班別代碼、換算實際上班時數，並依到職日週年制追蹤特休使用與剩餘。</p>
+    </div>
+    <div class="ring-mini" id="mastGauge"></div>
+  </div>
+
+  <nav class="tabs">
+    <button data-tab="employees" class="active">員工資料</button>
+    <button data-tab="import">匯入班表</button>
+    <button data-tab="report">本月報表</button>
+    <button data-tab="leave">特休總覽</button>
+    <button data-tab="settings">代碼設定</button>
+    <button data-tab="sync">雲端同步</button>
+  </nav>
+
+  <!-- ============ TAB: EMPLOYEES ============ -->
+  <section class="panel active" id="panel-employees">
+    <div class="card">
+      <h2>員工名冊</h2>
+      <p class="hint">維護員編、姓名與<b>到職日</b>；到職日用來依勞基法第38條試算「本服務年度」特休天數（週年制）。此清單也是匯入班表時比對每一列資料的依據。若員工中途有<b>育嬰留職停薪、留職停薪、傷病長假</b>等會影響特休週年計算的情況，可在「特休基準日」欄位另外填一個調整後的日期，試算會改用這個日期起算；留空則自動以到職日計算。</p>
+      <div class="table-wrap">
+        <table id="empTable">
+          <thead>
+            <tr><th class="name-cell">員編</th><th class="name-cell">姓名</th><th>到職日</th><th>特休基準日<br>（育嬰假/留停等調整用）</th><th>年資</th><th>本年度特休(天)</th><th></th></tr>
+          </thead>
+          <tbody id="empTbody"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn secondary" id="addEmpBtn">+ 新增員工</button>
+        <button class="btn ghost" id="resetEmpBtn">還原預設 51 人名冊</button>
+        <span class="field">
+          <label>特休試算基準日</label>
+          <input type="date" id="refDate">
+        </span>
+      </div>
+      <p class="status-line" id="empStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ TAB: IMPORT ============ -->
+  <section class="panel" id="panel-import">
+    <div class="card">
+      <h2>匯入本月排班 PDF</h2>
+      <p class="hint">上傳排班表 PDF 後，系統會將每頁轉成影像，分批交給 Claude 辨識每位員工每天的班別代碼。<b>掃描字體小、格式密，辨識結果請務必核對後再儲存</b>——下方會顯示可直接修改的表格。</p>
+      <div class="row">
+        <div class="field">
+          <label>目標月份</label>
+          <input type="text" id="targetMonth" placeholder="2026-07" style="width:110px;">
+        </div>
+        <div class="field">
+          <label>當月天數</label>
+          <input type="number" id="targetDays" value="31" min="28" max="31" style="width:70px;">
+        </div>
+        <div class="field">
+          <label>排班 PDF</label>
+          <input type="file" id="pdfInput" accept="application/pdf">
+        </div>
+        <div class="field">
+          <label>每批辨識人數</label>
+          <input type="number" id="batchSize" value="3" min="1" max="6" style="width:60px;">
+        </div>
+        <button class="btn" id="runExtractBtn" style="align-self:flex-end;">開始辨識</button>
+      </div>
+      <p class="status-line" id="importStatus"></p>
+      <progress id="importProgress" value="0" max="1" style="display:none;"></progress>
+    </div>
+
+    <div class="card">
+      <h2>或匯入 Excel / CSV 班表</h2>
+      <p class="hint">如果排班系統可以直接匯出 <b>.xlsx / .xls / .csv</b>，用這個方式比掃描辨識準確很多，建議優先用這個。系統會自動找出日期欄（1~天數）與員編/姓名欄，找完會先讓您確認再產生表格。</p>
+      <div class="row">
+        <div class="field">
+          <label>Excel / CSV 檔案</label>
+          <input type="file" id="xlsxInput" accept=".xlsx,.xls,.csv">
+        </div>
+        <div class="field">
+          <label>工作表</label>
+          <select id="xlsxSheetSelect" style="min-width:120px;"></select>
+        </div>
+        <button class="btn secondary" id="parseXlsxBtn">解析檔案</button>
+      </div>
+      <div class="row" id="xlsxMapRow" style="display:none; margin-top:12px;">
+        <div class="field">
+          <label>標題列（第幾列）</label>
+          <select id="xlsxHeaderRowSelect" style="width:90px;"></select>
+        </div>
+        <div class="field">
+          <label>員編欄</label>
+          <select id="xlsxIdColSelect" style="min-width:140px;"></select>
+        </div>
+        <div class="field">
+          <label>姓名欄</label>
+          <select id="xlsxNameColSelect" style="min-width:140px;"></select>
+        </div>
+        <button class="btn" id="applyXlsxMapBtn" style="align-self:flex-end;">套用並產生表格</button>
+      </div>
+      <p class="status-line" id="xlsxStatus"></p>
+    </div>
+
+    <div class="card" id="gridCard" style="display:none;">
+      <h2>辨識結果（可直接修改）</h2>
+      <p class="hint">
+        <span class="pill work">深綠＝上班班別</span>&nbsp;
+        <span class="pill leave">紅＝特殊假別</span>&nbsp;
+        <span class="pill" style="border-color:#B8902E;color:#B8902E;">黃底＝未歸類代碼，請於「代碼設定」分類</span>
+      </p>
+      <div class="table-wrap" style="max-height:520px; overflow-y:auto;">
+        <table id="gridTable"></table>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn" id="saveScheduleBtn">儲存本月班表</button>
+        <button class="btn ghost" id="reExtractSelectedBtn">重新辨識目前顯示的月份</button>
+      </div>
+      <p class="status-line" id="gridStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ TAB: REPORT ============ -->
+  <section class="panel" id="panel-report">
+    <div class="card">
+      <h2>月度工時與假別報表</h2>
+      <div class="row">
+        <div class="field">
+          <label>選擇月份</label>
+          <select id="reportMonthSelect"></select>
+        </div>
+        <button class="btn secondary" id="exportCsvBtn">匯出 CSV</button>
+      </div>
+      <div class="table-wrap" style="margin-top:14px;">
+        <table id="reportTable"></table>
+      </div>
+      <p class="status-line" id="reportStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ TAB: LEAVE ============ -->
+  <section class="panel" id="panel-leave">
+    <div class="card">
+      <h2>特休總覽（依到職日週年制）</h2>
+      <p class="hint">剩餘天數 = 本服務年度特休天數 − 從週年起算日到目前為止、所有<b>已儲存月份班表</b>中 V（特休）出現的天數。若某些月份尚未匯入，剩餘天數會偏高，請留意。</p>
+      <div class="table-wrap">
+        <table id="leaveTable"></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: SETTINGS ============ -->
+  <section class="panel" id="panel-settings">
+    <div class="card">
+      <h2>班別代碼分類</h2>
+      <p class="hint">設定每種代碼屬於「上班班別」「特殊假別」或「例假／排休（不列入工時也不列入假別扣抵）」。上班與假別代碼皆以 <b>每天 = 設定時數</b> 計算（依您先前確認，全部班別皆為 8 小時）。</p>
+      <div class="row" style="margin-bottom:10px;">
+        <div class="field"><label>每班工時（小時）</label><input type="number" id="hoursPerShift" value="8" style="width:70px;"></div>
+        <div class="field"><label>每天請假時數（小時）</label><input type="number" id="hoursPerLeave" value="8" style="width:70px;"></div>
+        <button class="btn secondary" id="saveConfigBtn" style="align-self:flex-end;">儲存設定</button>
+      </div>
+
+      <div class="row" style="align-items:flex-start; gap:26px;">
+        <div class="field" style="min-width:220px;">
+          <label>上班班別代碼（逗號分隔）</label>
+          <input type="text" id="workCodesInput" style="width:320px;">
+        </div>
+        <div class="field" style="min-width:220px;">
+          <label>例假／排休代碼（逗號分隔，不計工時）</label>
+          <input type="text" id="restCodesInput" style="width:260px;">
+        </div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <label style="font-size:11.5px; color:var(--ink-soft); font-weight:600;">特殊假別代碼與中文名稱</label>
+        <div class="table-wrap" style="margin-top:8px; max-width:520px;">
+          <table id="leaveCodeTable">
+            <thead><tr><th>代碼</th><th>假別名稱</th><th></th></tr></thead>
+            <tbody id="leaveCodeTbody"></tbody>
+          </table>
+        </div>
+        <button class="btn ghost" id="addLeaveCodeBtn" style="margin-top:8px;">+ 新增假別代碼</button>
+      </div>
+      <p class="status-line" id="settingsStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ TAB: CLOUD SYNC ============ -->
+  <section class="panel" id="panel-sync">
+    <div class="card">
+      <h2>雲端同步（手機／電腦共用同一份資料）</h2>
+      <p class="hint">
+        目前資料存在「這台裝置的瀏覽器」裡，換裝置不會互通。設定下面的免費 Firebase 專案後，員工名冊、班表、假別調整都會存到雲端，手機和電腦用同一個網址打開，就會看到同一份資料。<br>
+        設定步驟請看對話中我給您的說明；這裡只要把 Firebase 專案的「設定物件」貼進來即可。同一組設定，每台要同步的裝置都要各貼一次（只需貼一次，之後會記住）。
+      </p>
+      <div class="field" style="max-width:640px;">
+        <label>貼上 Firebase 設定物件（firebaseConfig）</label>
+        <textarea id="firebaseConfigInput" rows="7" style="font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--line-strong);border-radius:6px;" placeholder='{
+  "apiKey": "...",
+  "authDomain": "xxx.firebaseapp.com",
+  "projectId": "xxx",
+  "storageBucket": "xxx.appspot.com",
+  "messagingSenderId": "...",
+  "appId": "..."
+}'></textarea>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn" id="connectFirebaseBtn">測試連線並啟用同步</button>
+        <button class="btn ghost" id="disconnectFirebaseBtn">停用雲端同步（改回本機儲存）</button>
+        <button class="btn secondary" id="pullCloudBtn">從雲端重新整理資料</button>
+      </div>
+      <p class="status-line" id="syncStatus"></p>
+    </div>
+  </section>
+
+  <footer class="note">
+    <span id="storageNote"></span> 班表辨識由 Claude 讀取掃描影像產生，掃描品質、手寫或密集小字仍可能誤判，儲存前請務必核對「辨識結果」表格。特休天數試算依勞基法第38條到職日週年制；若貴單位採曆年制或另有規定，天數需另行調整。
+  </footer>
+</div>
+
+<div id="adjustModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(22,48,44,0.45); z-index:50; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="max-width:820px; width:100%; max-height:82vh; overflow:auto;">
+    <h2 id="adjustModalTitle">手動調整</h2>
+    <p class="hint">輸入該員工本月每天的<b>加班時數</b>、<b>各假別使用時數</b>（特休、喪假、產檢假…等，依「代碼設定」目前設定的假別列出）與<b>補休使用時數（小時）</b>，留空視為 0。適合處理公假、喪假、生理假、婚假、事假這類容易臨時異動的班別——班表代碼還沒改過來時，先在這裡用小時數調整。這些會直接反映在上面「假別使用（天）」與「異動後時數」；其中<b>特休(V)</b>使用時數同時會反映在「特休總覽」的剩餘天數，補休使用時數只影響工時、不影響特休剩餘。</p>
+    <div class="table-wrap"><table id="adjustGridTable"></table></div>
+    <div class="row" style="margin-top:14px;">
+      <button class="btn" id="saveAdjustBtn">儲存調整</button>
+      <button class="btn ghost" id="closeAdjustBtn">取消</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+/* ---------------- storage helpers ---------------- */
+/* Three storage tiers, tried in order:
+   1. window.storage   – only exists inside the Claude.ai artifact viewer
+   2. Firebase Firestore – used when the person has pasted a firebaseConfig
+      in the "雲端同步" tab, so phone + computer share the same data
+   3. localStorage – always-available per-device fallback              */
+const HAS_CLAUDE_STORAGE = (typeof window.storage !== "undefined") && window.storage
+  && typeof window.storage.get === "function";
+const LS_PREFIX = "orSchedApp:";
+const FB_CONFIG_KEY = "orSchedApp_firebaseConfig"; // raw localStorage key (device bootstrap, not app data)
+const FB_COLLECTION = "orSchedApp_v1";
+
+let FB = { app:null, db:null, ready:false };
+
+async function tryInitFirebase(config){
+  try{
+    if(!config || !config.apiKey || !config.projectId) return false;
+    if(FB.app){ try{ FB.app.delete(); }catch(e){} }
+    FB.app = firebase.initializeApp(config, "orSchedApp_"+Date.now());
+    FB.db = FB.app.firestore();
+    await FB.app.auth().signInAnonymously();
+    // smoke test: write + read a small doc
+    await FB.db.collection(FB_COLLECTION).doc("_ping").set({t: Date.now()});
+    FB.ready = true;
+    return true;
+  }catch(e){
+    console.error("firebase init failed", e);
+    FB.ready = false;
+    return false;
+  }
+}
+
+async function loadJSON(key, fallback){
+  try{
+    if(FB.ready){
+      const doc = await FB.db.collection(FB_COLLECTION).doc(key).get();
+      return doc.exists ? JSON.parse(doc.data().value) : fallback;
+    }
+    if(HAS_CLAUDE_STORAGE){
+      const r = await window.storage.get(key, false);
+      return r ? JSON.parse(r.value) : fallback;
+    }
+    const raw = localStorage.getItem(LS_PREFIX+key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  }catch(e){ return fallback; }
+}
+async function saveJSON(key, value){
+  try{
+    if(FB.ready){
+      await FB.db.collection(FB_COLLECTION).doc(key).set({value: JSON.stringify(value)});
+      return true;
+    }
+    if(HAS_CLAUDE_STORAGE){
+      const r = await window.storage.set(key, JSON.stringify(value), false);
+      return !!r;
+    }
+    localStorage.setItem(LS_PREFIX+key, JSON.stringify(value));
+    return true;
+  }catch(e){ console.error("storage set failed", key, e); return false; }
+}
+async function listKeys(prefix){
+  try{
+    if(FB.ready){
+      const snap = await FB.db.collection(FB_COLLECTION).get();
+      const out = [];
+      snap.forEach(doc=>{ if(doc.id.startsWith(prefix)) out.push(doc.id); });
+      return out;
+    }
+    if(HAS_CLAUDE_STORAGE){
+      const r = await window.storage.list(prefix, false);
+      return r ? r.keys : [];
+    }
+    const out = [];
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(LS_PREFIX+prefix)) out.push(k.slice(LS_PREFIX.length));
+    }
+    return out;
+  }catch(e){ return []; }
+}
+
+/* ---------------- default data ---------------- */
+const DEFAULT_EMPLOYEES = [
+["10361","李靜怡","1997-08-16"],["10367","張瑋恩","1997-08-16"],["10740","李佳容","1998-04-02"],
+["11598","羅秀如","2001-04-18"],["12847","郭妍伶","2007-07-02"],["14040","黃怡婷","2013-05-21"],
+["14055","洪怡婷","2013-06-17"],["14190","楊衣甄","2013-11-18"],["14444","李宜鵑","2014-11-17"],
+["15068","高靖緹","2017-08-07"],["15268","卓湘晴","2018-07-02"],["14958","林昕澄","2017-03-20"],
+["15349","黃品喆","2018-09-03"],["15508","徐禾沐","2019-06-03"],["15664","陳金燕","2019-11-18"],
+["15813","曾雅筠","2020-08-17"],["16016","林峙廷","2021-08-16"],["16601","吳婉菁","2023-09-04"],
+["16704","江嘉琪","2024-01-02"],["16900","李宜諮","2024-08-05"],["16926","何尚謙","2024-08-19"],
+["16947","簡晏欣","2024-09-02"],["17149","余宗芸","2025-04-07"],["16949","陳筠心","2024-09-02"],
+["16565","黃予婕","2023-08-07"],["10746","王玉仙","1998-04-13"],["10922","陳玉茹","1998-09-01"],
+["11468","盧貞君","2000-07-03"],["12295","林奕辰","2004-10-21"],["12483","林靜子","2005-09-02"],
+["13288","王嘉羚","2010-01-04"],["13565","程郁淳","2011-06-16"],["14492","謝佩芳","2015-03-23"],
+["14536","張佩琪","2015-05-25"],["14635","汪瑄柔","2015-08-17"],["15321","陳柏宇","2018-08-13"],
+["15423","周芳怡","2018-12-03"],["15544","黃淑嬅","2019-08-05"],["15577","鄒芮宸","2019-08-19"],
+["15783","蘇奕臻","2020-07-13"],["16304","王婷玉","2022-08-22"],["16343","黃玉秀","2022-09-19"],
+["16360","辜嬿潔","2022-10-17"],["16587","黃沂晨","2023-08-21"],["16650","劉祐呈","2023-10-16"],
+["16946","陳明瑄","2024-09-02"],["17073","張芸甄","2024-12-23"],["16948","黃佩琪","2024-09-02"],
+["17212","陳玥汝","2025-07-21"],["17307","蕭睬容","2025-10-07"],["17223","鄒昀珊","2025-08-11"]
+].map(([id,name,hire])=>({id,name,hire}));
+
+const DEFAULT_CONFIG = {
+  hoursPerShift: 8,
+  hoursPerLeave: 8,
+  workCodes: ["D","DX","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","D14","N","E","12-8"],
+  restCodes: ["休","例","國"],
+  leaveCodes: {"V":"特休","喪":"喪假","產檢":"產檢假","原":"原住民假","公":"公假","婚":"婚假","生理":"生理假","事":"事假"}
+};
+
+let STATE = {
+  employees: [],
+  config: null,
+  schedules: {}, // monthKey -> {days, byEmployee:{id:{1:'D',...}}}
+  adjustments: {} // monthKey -> {empId: {day: {ot:Number, v:Number}}}
+};
+
+/* ---------------- entitlement math ---------------- */
+function parseDate(s){ const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); }
+function monthsBetween(d1,d2){
+  let months = (d2.getFullYear()-d1.getFullYear())*12 + (d2.getMonth()-d1.getMonth());
+  if(d2.getDate() < d1.getDate()) months--;
+  return Math.max(0,months);
+}
+function entitlementDaysFromMonths(totalMonths){
+  const Y = Math.floor(totalMonths/12);
+  if(totalMonths<6) return 0;
+  if(totalMonths<12) return 3;
+  if(Y<2) return 7;
+  if(Y<3) return 10;
+  if(Y<5) return 14;
+  if(Y<10) return 15;
+  return Math.min(30, 15+(Y-10));
+}
+function entitlementYearWindow(hireDate, today){
+  let anniv = new Date(today.getFullYear(), hireDate.getMonth(), hireDate.getDate());
+  if(anniv > today) anniv.setFullYear(anniv.getFullYear()-1);
+  if(anniv < hireDate) anniv = new Date(hireDate.getTime());
+  let nextAnniv = new Date(anniv.getFullYear()+1, hireDate.getMonth(), hireDate.getDate());
+  return {start:anniv, end:nextAnniv};
+}
+function fmtDate(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+
+function codeKind(code){
+  if(!code) return "rest";
+  let c = code.trim();
+  if(!c || c==="?") return "rest";
+  // ★ marks "on-duty control desk" (當班控台) but doesn't change the shift's hours/type
+  const base = c.replace(/★/g,"").trim();
+  const check = (v)=> STATE.config.workCodes.includes(v) ? "work"
+              : STATE.config.leaveCodes.hasOwnProperty(v) ? "leave"
+              : STATE.config.restCodes.includes(v) ? "rest"
+              : null;
+  return check(c) || check(base) || "unknown";
+}
+
+/* ---------------- tab switching ---------------- */
+document.querySelectorAll("nav.tabs button").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("active"));
+    document.querySelectorAll("section.panel").forEach(p=>p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-"+btn.dataset.tab).classList.add("active");
+    if(btn.dataset.tab==="report") renderReportTab();
+    if(btn.dataset.tab==="leave") renderLeaveTab();
+  });
+});
+
+/* ---------------- employees tab ---------------- */
+function effectiveEntBaseDate(emp){
+  return parseDate((emp.entBase && emp.entBase.trim()) ? emp.entBase : emp.hire);
+}
+function renderEmployeesTab(){
+  const tbody = document.getElementById("empTbody");
+  tbody.innerHTML = "";
+  const ref = parseDate(document.getElementById("refDate").value);
+  STATE.employees.forEach((emp, idx)=>{
+    const baseDate = effectiveEntBaseDate(emp);
+    const months = monthsBetween(baseDate, ref);
+    const y = Math.floor(months/12), m = months%12;
+    const ent = entitlementDaysFromMonths(months);
+    const isOverridden = !!(emp.entBase && emp.entBase.trim());
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="name-cell"><input type="text" class="cell-code" style="width:60px;text-align:left;" value="${emp.id}" data-f="id" data-i="${idx}"></td>
+      <td class="name-cell"><input type="text" class="cell-code" style="width:80px;text-align:left;" value="${emp.name}" data-f="name" data-i="${idx}"></td>
+      <td><input type="date" value="${emp.hire}" data-f="hire" data-i="${idx}" style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--line-strong);border-radius:5px;padding:3px 5px;"></td>
+      <td>
+        <input type="date" value="${emp.entBase||''}" data-f="entBase" data-i="${idx}" style="font-family:var(--font-mono);font-size:12px;border:1px solid ${isOverridden?'var(--gold)':'var(--line-strong)'};border-radius:5px;padding:3px 5px;">
+        ${isOverridden ? `<button class="icon-btn" data-clearbase="${idx}" title="清除，改回用到職日計算" style="font-size:11px;">還原</button>` : ""}
+      </td>
+      <td>${y}年${m}個月</td>
+      <td><b>${ent}</b></td>
+      <td><button class="icon-btn" data-del="${idx}">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("empTbody").addEventListener("input",(e)=>{
+  const f = e.target.dataset.f, i = e.target.dataset.i;
+  if(f===undefined || i===undefined) return;
+  STATE.employees[i][f] = e.target.value;
+  if(f==="hire" || f==="entBase") renderEmployeesTab();
+});
+document.getElementById("empTbody").addEventListener("click",(e)=>{
+  if(e.target.dataset.del!==undefined){
+    STATE.employees.splice(Number(e.target.dataset.del),1);
+    persistEmployees();
+    renderEmployeesTab();
+  }
+  if(e.target.dataset.clearbase!==undefined){
+    STATE.employees[Number(e.target.dataset.clearbase)].entBase = "";
+    persistEmployees();
+    renderEmployeesTab();
+  }
+});
+document.getElementById("addEmpBtn").addEventListener("click",()=>{
+  STATE.employees.push({id:"", name:"", hire: fmtDate(new Date())});
+  renderEmployeesTab();
+});
+document.getElementById("resetEmpBtn").addEventListener("click", async ()=>{
+  STATE.employees = JSON.parse(JSON.stringify(DEFAULT_EMPLOYEES));
+  await persistEmployees();
+  renderEmployeesTab();
+  setStatus("empStatus","已還原預設名冊。","ok");
+});
+document.getElementById("refDate").addEventListener("change", async ()=>{
+  await saveJSON("refDate", document.getElementById("refDate").value);
+  renderEmployeesTab();
+});
+async function persistEmployees(){
+  const ok = await saveJSON("employees", STATE.employees);
+  setStatus("empStatus", ok? "已自動儲存。":"儲存失敗，請重試。", ok?"ok":"err");
+}
+document.getElementById("empTbody").addEventListener("change", persistEmployees);
+
+function setStatus(id, msg, cls){
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = "status-line" + (cls? " "+cls : "");
+}
+
+/* ---------------- settings tab ---------------- */
+function renderSettingsTab(){
+  document.getElementById("hoursPerShift").value = STATE.config.hoursPerShift;
+  document.getElementById("hoursPerLeave").value = STATE.config.hoursPerLeave;
+  document.getElementById("workCodesInput").value = STATE.config.workCodes.join(",");
+  document.getElementById("restCodesInput").value = STATE.config.restCodes.join(",");
+  const tbody = document.getElementById("leaveCodeTbody");
+  tbody.innerHTML = "";
+  Object.entries(STATE.config.leaveCodes).forEach(([code,label])=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" class="cell-code" style="width:60px;" value="${code}" data-lc="code" data-orig="${code}"></td>
+      <td><input type="text" class="cell-code" style="width:100px;" value="${label}" data-lc="label" data-orig="${code}"></td>
+      <td><button class="icon-btn" data-dellc="${code}">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("addLeaveCodeBtn").addEventListener("click",()=>{
+  STATE.config.leaveCodes["新代碼"] = "新假別";
+  renderSettingsTab();
+});
+document.getElementById("leaveCodeTbody").addEventListener("click",(e)=>{
+  if(e.target.dataset.dellc!==undefined){
+    delete STATE.config.leaveCodes[e.target.dataset.dellc];
+    renderSettingsTab();
+  }
+});
+document.getElementById("saveConfigBtn").addEventListener("click", async ()=>{
+  STATE.config.hoursPerShift = Number(document.getElementById("hoursPerShift").value)||8;
+  STATE.config.hoursPerLeave = Number(document.getElementById("hoursPerLeave").value)||8;
+  STATE.config.workCodes = document.getElementById("workCodesInput").value.split(",").map(s=>s.trim()).filter(Boolean);
+  STATE.config.restCodes = document.getElementById("restCodesInput").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const newLeaveCodes = {};
+  document.querySelectorAll("#leaveCodeTbody tr").forEach(tr=>{
+    const codeInput = tr.querySelector('[data-lc="code"]');
+    const labelInput = tr.querySelector('[data-lc="label"]');
+    if(codeInput.value.trim()) newLeaveCodes[codeInput.value.trim()] = labelInput.value.trim();
+  });
+  STATE.config.leaveCodes = newLeaveCodes;
+  const ok = await saveJSON("leaveConfig", STATE.config);
+  renderSettingsTab();
+  setStatus("settingsStatus", ok?"設定已儲存。":"儲存失敗，請重試。", ok?"ok":"err");
+});
+
+/* ---------------- import tab: PDF -> images ---------------- */
+async function pdfToImages(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+  const images = [];
+  for(let i=1;i<=pdf.numPages;i++){
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({scale: 2.4});
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    await page.render({canvasContext: ctx, viewport}).promise;
+    images.push(canvas.toDataURL("image/jpeg", 0.9).split(",")[1]);
+  }
+  return images;
+}
+
+async function extractBatch(images, employeesBatch, monthLabel, dayCount){
+  const empList = employeesBatch.map(e=>`${e.id} ${e.name}`).join("\n");
+  const prompt = `這是醫院手術室的月排班表掃描影像（可能有多頁）。請只針對下列員工，讀取他們在「${monthLabel}」這個月 1 號到 ${dayCount} 號、每一天欄位的班別代碼。
+
+注意：表格可能同時顯示前一個排班週期殘留的日期欄（例如上個月14-30號），以及本月1到${dayCount}號欄位，請務必只取「${monthLabel}」當月 1 到 ${dayCount} 號的欄位，不要抓到其他月份的欄位。用員編對照姓名找到正確的那一列。
+
+目標員工：
+${empList}
+
+請只回傳純 JSON，不要任何說明文字、不要 markdown code fence，格式如下：
+{"employees":[{"id":"員編","days":{"1":"代碼","2":"代碼","...":"...","${dayCount}":"代碼"}}]}
+
+代碼請照原樣抄錄（例如 D、D1、DX、N、E、12-8、V、公、休、例、國、喪、產檢、原、婚 等）。若某天格子看不清楚，該天填 "?"。若某位員工在此份班表上完全找不到，仍要回傳該員工 id，days 給空物件 {}。`;
+
+  const content = [
+    ...images.map(b64=>({type:"image", source:{type:"base64", media_type:"image/jpeg", data:b64}})),
+    {type:"text", text: prompt}
+  ];
+
+  const resp = await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1000, messages:[{role:"user", content}] })
+  });
+  const data = await resp.json();
+  const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+  const clean = text.replace(/```json|```/g,"").trim();
+  try{ return JSON.parse(clean); }
+  catch(e){ return {employees: employeesBatch.map(e=>({id:e.id, days:{}})), _error:true, _raw:text}; }
+}
+
+let CURRENT_GRID = null; // {monthLabel, dayCount, byEmployee}
+
+document.getElementById("runExtractBtn").addEventListener("click", async ()=>{
+  const fileInput = document.getElementById("pdfInput");
+  const monthLabel = document.getElementById("targetMonth").value.trim();
+  const dayCount = Number(document.getElementById("targetDays").value) || 31;
+  const batchSize = Math.max(1, Number(document.getElementById("batchSize").value) || 3);
+  if(!fileInput.files[0]){ setStatus("importStatus","請先選擇 PDF 檔案。","err"); return; }
+  if(!monthLabel){ setStatus("importStatus","請輸入目標月份，例如 2026-07。","err"); return; }
+  if(STATE.employees.length===0){ setStatus("importStatus","請先在「員工資料」建立名冊。","err"); return; }
+
+  const runBtn = document.getElementById("runExtractBtn");
+  runBtn.disabled = true;
+  const prog = document.getElementById("importProgress");
+  prog.style.display = "block";
+  setStatus("importStatus","正在讀取 PDF 頁面...","");
+
+  let images;
+  try{ images = await pdfToImages(fileInput.files[0]); }
+  catch(e){ setStatus("importStatus","PDF 讀取失敗："+e.message,"err"); runBtn.disabled=false; return; }
+
+  const byEmployee = {};
+  const batches = [];
+  for(let i=0;i<STATE.employees.length;i+=batchSize) batches.push(STATE.employees.slice(i,i+batchSize));
+
+  prog.max = batches.length; prog.value = 0;
+  let errCount = 0;
+  for(let b=0;b<batches.length;b++){
+    setStatus("importStatus",`辨識中… 第 ${b+1}/${batches.length} 批（${batches[b].map(e=>e.name).join("、")}）`,"");
+    try{
+      const result = await extractBatch(images, batches[b], monthLabel, dayCount);
+      (result.employees||[]).forEach(e=>{ byEmployee[e.id] = e.days || {}; });
+      if(result._error) errCount++;
+    }catch(e){
+      errCount++;
+      batches[b].forEach(e=>{ byEmployee[e.id] = byEmployee[e.id] || {}; });
+    }
+    prog.value = b+1;
+  }
+
+  CURRENT_GRID = { monthLabel, dayCount, byEmployee };
+  renderGrid();
+  runBtn.disabled = false;
+  setStatus("importStatus", errCount>0
+    ? `辨識完成，但有 ${errCount} 批發生錯誤或解析失敗，請在下方表格手動補齊。`
+    : "辨識完成，請核對下方表格後再儲存。", errCount>0?"err":"ok");
+});
+
+function renderGrid(){
+  if(!CURRENT_GRID) return;
+  document.getElementById("gridCard").style.display = "block";
+  const {dayCount, byEmployee} = CURRENT_GRID;
+  const table = document.getElementById("gridTable");
+  let thead = `<thead><tr><th class="name-cell">員編</th><th class="name-cell">姓名</th>`;
+  for(let d=1; d<=dayCount; d++) thead += `<th>${d}</th>`;
+  thead += `</tr></thead>`;
+  let tbody = "<tbody>";
+  STATE.employees.forEach(emp=>{
+    const days = byEmployee[emp.id] || {};
+    tbody += `<tr><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}</td>`;
+    for(let d=1; d<=dayCount; d++){
+      const code = days[String(d)] || "";
+      const kind = codeKind(code);
+      tbody += `<td><input class="cell-code ${kind}" data-emp="${emp.id}" data-day="${d}" value="${code}"></td>`;
+    }
+    tbody += `</tr>`;
+  });
+  tbody += "</tbody>";
+  table.innerHTML = thead + tbody;
+}
+document.getElementById("gridTable").addEventListener("input",(e)=>{
+  if(!e.target.dataset.emp) return;
+  const {emp, day} = e.target.dataset;
+  CURRENT_GRID.byEmployee[emp] = CURRENT_GRID.byEmployee[emp] || {};
+  CURRENT_GRID.byEmployee[emp][day] = e.target.value.trim();
+  const kind = codeKind(e.target.value.trim());
+  e.target.className = "cell-code " + kind;
+});
+document.getElementById("saveScheduleBtn").addEventListener("click", async ()=>{
+  if(!CURRENT_GRID){ return; }
+  const key = "schedule:"+CURRENT_GRID.monthLabel;
+  const ok = await saveJSON(key, {dayCount: CURRENT_GRID.dayCount, byEmployee: CURRENT_GRID.byEmployee});
+  STATE.schedules[CURRENT_GRID.monthLabel] = {dayCount: CURRENT_GRID.dayCount, byEmployee: CURRENT_GRID.byEmployee};
+  setStatus("gridStatus", ok? `已儲存 ${CURRENT_GRID.monthLabel} 班表。`:"儲存失敗，請重試。", ok?"ok":"err");
+  populateReportMonths();
+});
+document.getElementById("reExtractSelectedBtn").addEventListener("click",()=>{
+  document.getElementById("runExtractBtn").click();
+});
+
+/* ---------------- import tab: Excel / CSV path ---------------- */
+let XLSX_WORKBOOK = null;
+let XLSX_SHEET_ROWS = null; // array of arrays for currently selected sheet
+
+document.getElementById("xlsxInput").addEventListener("change", async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  setStatus("xlsxStatus","讀取檔案中...","");
+  try{
+    const buf = await file.arrayBuffer();
+    XLSX_WORKBOOK = XLSX.read(buf, {type:"array"});
+    const sel = document.getElementById("xlsxSheetSelect");
+    sel.innerHTML = XLSX_WORKBOOK.SheetNames.map(n=>`<option value="${n}">${n}</option>`).join("");
+    setStatus("xlsxStatus", `已讀取，共 ${XLSX_WORKBOOK.SheetNames.length} 個工作表，請按「解析檔案」。`, "ok");
+  }catch(err){
+    setStatus("xlsxStatus","檔案讀取失敗："+err.message,"err");
+  }
+});
+
+function colLabel(i){
+  let s = "";
+  i = i+1;
+  while(i>0){ const m=(i-1)%26; s = String.fromCharCode(65+m)+s; i = Math.floor((i-1)/26); }
+  return s;
+}
+
+document.getElementById("parseXlsxBtn").addEventListener("click", ()=>{
+  if(!XLSX_WORKBOOK){ setStatus("xlsxStatus","請先選擇檔案。","err"); return; }
+  const sheetName = document.getElementById("xlsxSheetSelect").value;
+  const sheet = XLSX_WORKBOOK.Sheets[sheetName];
+  XLSX_SHEET_ROWS = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:""});
+  if(!XLSX_SHEET_ROWS.length){ setStatus("xlsxStatus","這個工作表沒有資料。","err"); return; }
+
+  const dayCount = Number(document.getElementById("targetDays").value) || 31;
+
+  // score each row by how many cells parse as an integer within 1..dayCount
+  let bestRow = 0, bestScore = -1;
+  XLSX_SHEET_ROWS.forEach((row, ridx)=>{
+    let score = 0;
+    row.forEach(cell=>{
+      const n = parseInt(String(cell).trim(),10);
+      if(!isNaN(n) && n>=1 && n<=dayCount && String(n)===String(cell).trim()) score++;
+    });
+    if(score > bestScore){ bestScore = score; bestRow = ridx; }
+  });
+
+  const headerRowSel = document.getElementById("xlsxHeaderRowSelect");
+  headerRowSel.innerHTML = XLSX_SHEET_ROWS.map((r,i)=>`<option value="${i}" ${i===bestRow?"selected":""}>第 ${i+1} 列</option>`).join("");
+
+  fillColumnSelectors(bestRow);
+  document.getElementById("xlsxMapRow").style.display = "flex";
+  setStatus("xlsxStatus", `已自動偵測標題列（第 ${bestRow+1} 列），請確認員編/姓名欄位是否正確，再按「套用」。`, "ok");
+});
+
+document.getElementById("xlsxHeaderRowSelect").addEventListener("change",()=>{
+  fillColumnSelectors(Number(document.getElementById("xlsxHeaderRowSelect").value));
+});
+
+function fillColumnSelectors(headerRowIdx){
+  const headerRow = XLSX_SHEET_ROWS[headerRowIdx] || [];
+  const idSel = document.getElementById("xlsxIdColSelect");
+  const nameSel = document.getElementById("xlsxNameColSelect");
+  let idGuess = 0, nameGuess = 1;
+  headerRow.forEach((cell,i)=>{
+    const c = String(cell).trim();
+    if(/員編|工號|職編|編號/.test(c)) idGuess = i;
+    if(/姓名|員工姓名|名字/.test(c)) nameGuess = i;
+  });
+  const opts = headerRow.map((cell,i)=>`<option value="${i}">${colLabel(i)} － ${String(cell).trim()||"(空白)"}</option>`).join("");
+  idSel.innerHTML = opts; nameSel.innerHTML = opts;
+  idSel.value = idGuess; nameSel.value = nameGuess;
+}
+
+document.getElementById("applyXlsxMapBtn").addEventListener("click", ()=>{
+  const headerRowIdx = Number(document.getElementById("xlsxHeaderRowSelect").value);
+  const idCol = Number(document.getElementById("xlsxIdColSelect").value);
+  const nameCol = Number(document.getElementById("xlsxNameColSelect").value);
+  const monthLabel = document.getElementById("targetMonth").value.trim() || (()=>{const n=new Date();return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0");})();
+  const dayCount = Number(document.getElementById("targetDays").value) || 31;
+  const headerRow = XLSX_SHEET_ROWS[headerRowIdx] || [];
+
+  // map day -> column index; if a day number appears more than once, keep the LAST (rightmost) column
+  const dayCol = {};
+  headerRow.forEach((cell,i)=>{
+    const s = String(cell).trim();
+    const n = parseInt(s,10);
+    if(!isNaN(n) && n>=1 && n<=dayCount && String(n)===s){ dayCol[n] = i; }
+  });
+  const mappedDays = Object.keys(dayCol).length;
+  if(mappedDays===0){
+    setStatus("xlsxStatus","在這個標題列找不到任何 1~"+dayCount+" 的日期欄，請換一列試試。","err");
+    return;
+  }
+
+  const byEmployee = {};
+  const foundIds = new Set();
+  for(let r=headerRowIdx+1; r<XLSX_SHEET_ROWS.length; r++){
+    const row = XLSX_SHEET_ROWS[r];
+    if(!row || row.length===0) continue;
+    const id = String(row[idCol]!==undefined ? row[idCol] : "").trim();
+    if(!id) continue;
+    foundIds.add(id);
+    const days = {};
+    for(const [d,ci] of Object.entries(dayCol)){
+      days[d] = String(row[ci]!==undefined ? row[ci] : "").trim();
+    }
+    byEmployee[id] = days;
+  }
+
+  const masterIds = new Set(STATE.employees.map(e=>e.id));
+  const unmatched = [...foundIds].filter(id=>!masterIds.has(id));
+
+  CURRENT_GRID = { monthLabel, dayCount, byEmployee };
+  renderGrid();
+  setStatus("xlsxStatus",
+    `已解析 ${foundIds.size} 列資料，對應到 ${mappedDays} 個日期欄。`
+    + (unmatched.length ? ` 有 ${unmatched.length} 筆員編不在目前的員工名冊中（例如：${unmatched.slice(0,5).join("、")}），未顯示在表格裡，如需要請先到「員工資料」新增。` : ""),
+    "ok");
+});
+
+/* ---------------- report tab ---------------- */
+function populateReportMonths(){
+  const sel = document.getElementById("reportMonthSelect");
+  const months = Object.keys(STATE.schedules).sort().reverse();
+  sel.innerHTML = months.map(m=>`<option value="${m}">${m}</option>`).join("");
+}
+function dayLeaveHours(dv){
+  // backward compatible: older saved data used a single "v" field for 特休(V) hours only
+  if(dv && dv.leave) return dv.leave;
+  if(dv && dv.v!==undefined) return {"V": dv.v};
+  return {};
+}
+function computeMonthReport(monthKey){
+  const sched = STATE.schedules[monthKey];
+  if(!sched) return [];
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  const adjForMonth = STATE.adjustments[monthKey] || {};
+  return STATE.employees.map(emp=>{
+    const days = sched.byEmployee[emp.id] || {};
+    let workDays=0, leaveTotals={};
+    leaveCodes.forEach(c=>leaveTotals[c]=0);
+    Object.values(days).forEach(code=>{
+      const c = (code||"").trim();
+      const kind = codeKind(c);
+      const base = c.replace(/★/g,"").trim();
+      if(kind==="work") workDays++;
+      else if(kind==="leave"){
+        const key = STATE.config.leaveCodes.hasOwnProperty(c) ? c : base;
+        leaveTotals[key] = (leaveTotals[key]||0)+1;
+      }
+    });
+    const workHours = workDays * STATE.config.hoursPerShift;
+    const empAdj = adjForMonth[emp.id] || {};
+    let otHours = 0, compHours = 0, totalManualLeaveHours = 0;
+    const manualLeaveHours = {};
+    leaveCodes.forEach(c=>manualLeaveHours[c]=0);
+    Object.values(empAdj).forEach(d=>{
+      otHours += Number(d.ot)||0;
+      compHours += Number(d.comp)||0;
+      const lv = dayLeaveHours(d);
+      Object.entries(lv).forEach(([code,hrs])=>{
+        const h = Number(hrs)||0;
+        if(!h) return;
+        manualLeaveHours[code] = (manualLeaveHours[code]||0) + h;
+      });
+    });
+    Object.entries(manualLeaveHours).forEach(([code,hrs])=>{
+      if(hrs){
+        leaveTotals[code] = Math.round(((leaveTotals[code]||0) + hrs/(STATE.config.hoursPerLeave||8))*100)/100;
+        totalManualLeaveHours += hrs;
+      }
+    });
+    const totalHours = workHours + otHours - compHours - totalManualLeaveHours;
+    return {emp, workDays, workHours, leaveTotals, otHours, compHours, manualLeaveHours, totalManualLeaveHours, totalHours};
+  });
+}
+function renderReportTab(){
+  populateReportMonths();
+  const sel = document.getElementById("reportMonthSelect");
+  if(!sel.value && sel.options.length) sel.value = sel.options[0].value;
+  drawReportTable();
+}
+document.getElementById("reportMonthSelect").addEventListener("change", drawReportTable);
+function drawReportTable(){
+  const monthKey = document.getElementById("reportMonthSelect").value;
+  const table = document.getElementById("reportTable");
+  if(!monthKey){ table.innerHTML = "<tr><td>尚未有已儲存的月份班表。</td></tr>"; return; }
+  const rows = computeMonthReport(monthKey);
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  const divider = "border-left:2px solid var(--line-strong);";
+  let thead = `<thead>
+    <tr>
+      <th class="name-cell" rowspan="2">員編</th>
+      <th class="name-cell" rowspan="2">姓名</th>
+      <th colspan="2">排定</th>
+      <th colspan="${leaveCodes.length}">假別使用（天，含手動調整）</th>
+      <th colspan="3" style="${divider}">異動後</th>
+      <th rowspan="2"></th>
+    </tr>
+    <tr>
+      <th>上班天數</th><th>排定時數</th>
+      ${leaveCodes.map(c=>`<th>${STATE.config.leaveCodes[c]}</th>`).join("")}
+      <th style="${divider}">加班時數</th><th>補休使用(時)</th><th>異動後時數</th>
+    </tr>
+  </thead>`;
+  let tbody = "<tbody>";
+  rows.forEach(r=>{
+    tbody += `<tr><td class="name-cell">${r.emp.id}</td><td class="name-cell">${r.emp.name}</td><td>${r.workDays}</td><td>${r.workHours}</td>`;
+    leaveCodes.forEach(c=> tbody += `<td>${r.leaveTotals[c]||0}</td>`);
+    tbody += `<td style="${divider}">${r.otHours||0}</td><td>${r.compHours||0}</td><td style="color:var(--teal-deep);"><b>${r.totalHours}</b></td>`;
+    tbody += `<td><button class="icon-btn" data-adjust="${r.emp.id}" title="逐日輸入加班/各假別使用/補休使用時數" style="color:var(--teal-deep);">✎ 調整</button></td>`;
+    tbody += `</tr>`;
+  });
+  tbody += "</tbody>";
+  table.innerHTML = thead+tbody;
+  setStatus("reportStatus", `共 ${rows.length} 位員工，資料月份 ${monthKey}。假別天數已自動併入「調整」視窗手動輸入的小時數；「異動後」= 排定時數 + 加班時數 − 各假別使用時數 − 補休使用時數。`, "");
+}
+document.getElementById("reportTable").addEventListener("click",(e)=>{
+  const empId = e.target.closest("[data-adjust]") ? e.target.closest("[data-adjust]").dataset.adjust : null;
+  if(empId) openAdjustModal(empId);
+});
+
+/* ---------------- manual adjustment modal (overtime / any leave type, in hours) ---------------- */
+let ADJUST_CTX = null;
+function openAdjustModal(empId){
+  const monthKey = document.getElementById("reportMonthSelect").value;
+  const sched = STATE.schedules[monthKey];
+  if(!sched) return;
+  const emp = STATE.employees.find(e=>e.id===empId);
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  ADJUST_CTX = {monthKey, empId, dayCount: sched.dayCount};
+  document.getElementById("adjustModalTitle").textContent = `手動調整－ ${emp?emp.name:empId}（${monthKey}）`;
+  const existing = (STATE.adjustments[monthKey]||{})[empId] || {};
+  let thead = "<thead><tr><th class=\"name-cell\">項目</th>";
+  for(let d=1; d<=sched.dayCount; d++) thead += `<th>${d}</th>`;
+  thead += "</tr></thead>";
+
+  function buildRow(label, attr, extraCode){
+    let row = `<tr><td class="name-cell">${label}(小時)</td>`;
+    for(let d=1; d<=sched.dayCount; d++){
+      const dv = existing[d] || {};
+      let val = "";
+      if(attr==="ot" || attr==="comp") val = dv[attr]!==undefined ? dv[attr] : "";
+      else { const lv = dayLeaveHours(dv); val = lv[extraCode]!==undefined ? lv[extraCode] : ""; }
+      const dataAttrs = attr==="leave" ? `data-adj="leave" data-code="${extraCode}"` : `data-adj="${attr}"`;
+      row += `<td><input type="number" step="0.5" class="cell-code" style="width:44px;" ${dataAttrs} data-day="${d}" value="${val}"></td>`;
+    }
+    return row + "</tr>";
+  }
+
+  let rowsHtml = buildRow("加班","ot");
+  leaveCodes.forEach(code=>{
+    rowsHtml += buildRow(STATE.config.leaveCodes[code]+"使用", "leave", code);
+  });
+  rowsHtml += buildRow("補休使用","comp");
+
+  document.getElementById("adjustGridTable").innerHTML = thead + "<tbody>"+rowsHtml+"</tbody>";
+  document.getElementById("adjustModalOverlay").style.display = "flex";
+}
+document.getElementById("closeAdjustBtn").addEventListener("click", ()=>{
+  document.getElementById("adjustModalOverlay").style.display = "none";
+});
+document.getElementById("adjustModalOverlay").addEventListener("click",(e)=>{
+  if(e.target.id==="adjustModalOverlay") document.getElementById("adjustModalOverlay").style.display = "none";
+});
+document.getElementById("saveAdjustBtn").addEventListener("click", async ()=>{
+  if(!ADJUST_CTX) return;
+  const {monthKey, empId, dayCount} = ADJUST_CTX;
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  const dayData = {};
+  for(let d=1; d<=dayCount; d++){
+    const otEl = document.querySelector(`#adjustGridTable input[data-adj="ot"][data-day="${d}"]`);
+    const compEl = document.querySelector(`#adjustGridTable input[data-adj="comp"][data-day="${d}"]`);
+    const otVal = otEl ? otEl.value.trim() : "";
+    const compVal = compEl ? compEl.value.trim() : "";
+    const leaveObj = {};
+    leaveCodes.forEach(code=>{
+      const el = document.querySelector(`#adjustGridTable input[data-adj="leave"][data-code="${code}"][data-day="${d}"]`);
+      const val = el ? el.value.trim() : "";
+      if(val!=="") leaveObj[code] = Number(val);
+    });
+    if(otVal!=="" || compVal!=="" || Object.keys(leaveObj).length){
+      dayData[d] = {};
+      if(otVal!=="") dayData[d].ot = Number(otVal);
+      if(compVal!=="") dayData[d].comp = Number(compVal);
+      if(Object.keys(leaveObj).length) dayData[d].leave = leaveObj;
+    }
+  }
+  STATE.adjustments[monthKey] = STATE.adjustments[monthKey] || {};
+  STATE.adjustments[monthKey][empId] = dayData;
+  const ok = await saveJSON("adjust:"+monthKey, STATE.adjustments[monthKey]);
+  document.getElementById("adjustModalOverlay").style.display = "none";
+  drawReportTable();
+  setStatus("reportStatus", ok? "已儲存調整。":"儲存失敗，請重試。", ok?"ok":"err");
+});
+document.getElementById("exportCsvBtn").addEventListener("click",()=>{
+  const monthKey = document.getElementById("reportMonthSelect").value;
+  if(!monthKey) return;
+  const rows = computeMonthReport(monthKey);
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  let csv = "員編,姓名,上班天數,排定時數,"+leaveCodes.map(c=>STATE.config.leaveCodes[c]).join(",")+",加班時數,補休使用(時),異動後時數\n";
+  rows.forEach(r=>{
+    csv += `${r.emp.id},${r.emp.name},${r.workDays},${r.workHours},`+leaveCodes.map(c=>r.leaveTotals[c]||0).join(",")
+         + `,${r.otHours||0},${r.compHours||0},${r.totalHours}\n`;
+  });
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `工時報表_${monthKey}.csv`; a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* ---------------- leave tab ---------------- */
+function gaugeSvg(pct, size){
+  size = size || 54;
+  const r = size/2 - 5, c = size/2;
+  const circumference = 2*Math.PI*r;
+  const clamped = Math.max(0, Math.min(1, pct));
+  const dash = circumference * clamped;
+  const color = pct < 0 ? "#A23B32" : (pct < 0.2 ? "#B8902E" : "#0F5C56");
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#E4E1D6" stroke-width="5"/>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-width="5"
+      stroke-linecap="round" stroke-dasharray="${dash} ${circumference}"
+      transform="rotate(-90 ${c} ${c})"/>
+  </svg>`;
+}
+function renderLeaveTab(){
+  const ref = parseDate(document.getElementById("refDate").value || fmtDate(new Date()));
+  const table = document.getElementById("leaveTable");
+  let thead = `<thead><tr><th class="name-cell">員編</th><th class="name-cell">姓名</th><th>到職日</th><th>特休基準日</th><th>週年起算日</th><th>本年度天數</th><th>已用(V)</th><th>剩餘</th><th></th></tr></thead>`;
+  let tbody = "<tbody>";
+  STATE.employees.forEach(emp=>{
+    const baseDate = effectiveEntBaseDate(emp);
+    const {start,end} = entitlementYearWindow(baseDate, ref);
+    const months = monthsBetween(baseDate, ref);
+    const entitlement = entitlementDaysFromMonths(months);
+    let used = 0;
+    Object.entries(STATE.schedules).forEach(([monthKey, sched])=>{
+      const [y,m] = monthKey.split("-").map(Number);
+      const days = (sched.byEmployee||{})[emp.id] || {};
+      Object.entries(days).forEach(([dayStr, code])=>{
+        const c = (code||"").trim().replace(/★/g,"").trim();
+        if(c !== "V") return;
+        const d = new Date(y, m-1, Number(dayStr));
+        if(d >= start && d < end) used++;
+      });
+      const empAdj = ((STATE.adjustments[monthKey]||{})[emp.id]) || {};
+      Object.entries(empAdj).forEach(([dayStr, dv])=>{
+        const vHours = Number(dayLeaveHours(dv)["V"])||0;
+        if(!vHours) return;
+        const d = new Date(y, m-1, Number(dayStr));
+        if(d >= start && d < end) used += vHours / (STATE.config.hoursPerLeave || 8);
+      });
+    });
+    used = Math.round(used*100)/100;
+    const remaining = entitlement - used;
+    const pct = entitlement>0 ? remaining/entitlement : 0;
+    tbody += `<tr>
+      <td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}</td>
+      <td>${emp.hire}</td>
+      <td>${emp.entBase ? `<span style="color:var(--gold);font-weight:600;">${emp.entBase}</span>` : `<span style="color:var(--ink-soft);">同到職日</span>`}</td>
+      <td>${fmtDate(start)} ~ ${fmtDate(end)}</td>
+      <td>${entitlement}</td><td>${used}</td>
+      <td style="color:${remaining<0?'var(--brick)':'var(--ink)'};font-weight:700;">${remaining}</td>
+      <td>${gaugeSvg(pct,36)}</td>
+    </tr>`;
+  });
+  tbody += "</tbody>";
+  table.innerHTML = thead+tbody;
+}
+
+/* ---------------- init ---------------- */
+async function init(){
+  // if a Firebase config was saved on this device before, reconnect automatically
+  try{
+    const savedFbConfig = localStorage.getItem(FB_CONFIG_KEY);
+    if(savedFbConfig){
+      const cfg = JSON.parse(savedFbConfig);
+      await tryInitFirebase(cfg);
+      document.getElementById("firebaseConfigInput").value = JSON.stringify(cfg, null, 2);
+    }
+  }catch(e){ console.error("firebase auto-reconnect failed", e); }
+
+  STATE.employees = await loadJSON("employees", null);
+  if(!STATE.employees){
+    STATE.employees = JSON.parse(JSON.stringify(DEFAULT_EMPLOYEES));
+    await saveJSON("employees", STATE.employees);
+  }
+  STATE.config = await loadJSON("leaveConfig", null);
+  if(!STATE.config){
+    STATE.config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+    await saveJSON("leaveConfig", STATE.config);
+  } else {
+    // migration: add any new default leave codes that pre-date this app version,
+    // without touching codes the user already customized.
+    let changed = false;
+    Object.entries(DEFAULT_CONFIG.leaveCodes).forEach(([code,label])=>{
+      if(!STATE.config.leaveCodes.hasOwnProperty(code)){
+        STATE.config.leaveCodes[code] = label;
+        changed = true;
+      }
+    });
+    if(changed) await saveJSON("leaveConfig", STATE.config);
+  }
+  const savedRef = await loadJSON("refDate", null);
+  document.getElementById("refDate").value = savedRef || fmtDate(new Date());
+
+  const monthKeys = await listKeys("schedule:");
+  for(const k of monthKeys){
+    const label = k.replace("schedule:","");
+    const data = await loadJSON(k, null);
+    if(data) STATE.schedules[label] = data;
+  }
+
+  const adjKeys = await listKeys("adjust:");
+  for(const k of adjKeys){
+    const label = k.replace("adjust:","");
+    const data = await loadJSON(k, null);
+    if(data) STATE.adjustments[label] = data;
+  }
+
+  const now = new Date();
+  document.getElementById("targetMonth").value = now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0");
+
+  renderEmployeesTab();
+  renderSettingsTab();
+  populateReportMonths();
+  updateStorageNote();
+}
+
+function updateStorageNote(){
+  document.getElementById("storageNote").textContent = FB.ready
+    ? "已啟用雲端同步（Firebase）：這台裝置與其他貼過同一組設定的裝置會共用同一份資料。"
+    : HAS_CLAUDE_STORAGE
+    ? "資料儲存在您的 Claude.ai 帳號中（不與他人共用）。"
+    : "資料儲存在「這台電腦、這個瀏覽器」的本機儲存空間中（localStorage）：換一台電腦、換瀏覽器，或清除瀏覽資料都會遺失。到「雲端同步」分頁可以設定多裝置共用。";
+}
+
+document.getElementById("connectFirebaseBtn").addEventListener("click", async ()=>{
+  setStatus("syncStatus","連線測試中...","");
+  let cfg;
+  try{
+    const raw = document.getElementById("firebaseConfigInput").value.trim();
+    cfg = JSON.parse(raw);
+  }catch(e){
+    setStatus("syncStatus","設定物件格式錯誤，請確認貼的是完整的 JSON（key 要用雙引號）。","err");
+    return;
+  }
+  const ok = await tryInitFirebase(cfg);
+  if(ok){
+    localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg));
+    setStatus("syncStatus","連線成功！開始從雲端讀取資料...","ok");
+    await reloadAllFromStorage();
+    updateStorageNote();
+    setStatus("syncStatus","雲端同步已啟用，資料已從雲端載入。","ok");
+  }else{
+    setStatus("syncStatus","連線失敗，請確認設定物件是否正確、Firestore 是否已建立、匿名登入是否已啟用。","err");
+  }
+});
+document.getElementById("disconnectFirebaseBtn").addEventListener("click", async ()=>{
+  FB.ready = false;
+  localStorage.removeItem(FB_CONFIG_KEY);
+  updateStorageNote();
+  setStatus("syncStatus","已停用雲端同步，改回使用本機儲存。","ok");
+});
+document.getElementById("pullCloudBtn").addEventListener("click", async ()=>{
+  if(!FB.ready){ setStatus("syncStatus","目前尚未啟用雲端同步。","err"); return; }
+  setStatus("syncStatus","從雲端重新整理中...","");
+  await reloadAllFromStorage();
+  setStatus("syncStatus","已從雲端取得最新資料。","ok");
+});
+async function reloadAllFromStorage(){
+  STATE.employees = await loadJSON("employees", STATE.employees);
+  STATE.config = await loadJSON("leaveConfig", STATE.config);
+  STATE.schedules = {};
+  const monthKeys = await listKeys("schedule:");
+  for(const k of monthKeys){
+    const label = k.replace("schedule:","");
+    const data = await loadJSON(k, null);
+    if(data) STATE.schedules[label] = data;
+  }
+  STATE.adjustments = {};
+  const adjKeys = await listKeys("adjust:");
+  for(const k of adjKeys){
+    const label = k.replace("adjust:","");
+    const data = await loadJSON(k, null);
+    if(data) STATE.adjustments[label] = data;
+  }
+  renderEmployeesTab();
+  renderSettingsTab();
+  populateReportMonths();
+  drawReportTable();
+  renderLeaveTab();
+}
+init();
+</script>
+</body>
+</html>
