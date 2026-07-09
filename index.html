@@ -329,6 +329,19 @@
       </div>
       <p class="status-line" id="annualStatus"></p>
     </div>
+
+    <div class="card">
+      <h2>匯入舊年度報表（補齊使用本系統前的歷史資料）</h2>
+      <p class="hint">上傳貴單位原本的「單位人力出缺勤暨加班補休統計報表」（.xls/.xlsx），系統會自動找出裡面所有 <b>OR＋民國年</b> 命名的工作表（例如 OR114、OR113），把假別時數、加班別、補休銀行、累計已休年休/結餘年休這幾列，直接填成對應年度「年度統計報表」裡的手動覆蓋值，一次可以匯入多個年度。</p>
+      <div class="row">
+        <div class="field">
+          <label>舊報表檔案</label>
+          <input type="file" id="histReportInput" accept=".xls,.xlsx">
+        </div>
+        <button class="btn" id="importHistBtn">開始匯入</button>
+      </div>
+      <p class="status-line" id="histImportStatus"></p>
+    </div>
   </section>
 
   <!-- ============ TAB: SETTINGS ============ -->
@@ -1332,7 +1345,18 @@ function computeAnnualReport(year){
   };
 }
 
-function renderAnnualTab(){
+let ANNUAL_MANUAL_CACHE = {}; // year -> { rowKey: { monthIdx(0-11): value } }
+async function loadAnnualManual(year){
+  if(ANNUAL_MANUAL_CACHE[year]) return ANNUAL_MANUAL_CACHE[year];
+  const data = await loadJSON("annualManual:"+year, {});
+  ANNUAL_MANUAL_CACHE[year] = data;
+  return data;
+}
+async function saveAnnualManual(year){
+  await saveJSON("annualManual:"+year, ANNUAL_MANUAL_CACHE[year]||{});
+}
+
+async function renderAnnualTab(){
   const yearInput = document.getElementById("annualYearInput");
   if(!yearInput.value) yearInput.value = new Date().getFullYear() - 1911; // default to current 民國 year guess
   const year = yearInput.value.trim();
@@ -1341,79 +1365,187 @@ function renderAnnualTab(){
   let westernYear = Number(year);
   if(westernYear < 1000) westernYear += 1911;
   const rpt = computeAnnualReport(westernYear);
+  const manual = await loadAnnualManual(westernYear);
 
   const table = document.getElementById("annualTable");
   const mHeaders = rpt.months.map(m=>`<th>${m}月</th>`).join("");
   let thead = `<thead><tr><th class="name-cell">項目</th>${mHeaders}<th style="border-left:2px solid var(--line-strong);">累計</th></tr></thead>`;
 
-  function dataRow(label, arr, opts){
+  const rowDefs = []; // {key,label,values(effective),sumType,bold}
+
+  function effectiveValues(rowKey, defaults){
+    const overrides = manual[rowKey] || {};
+    return defaults.map((v,idx)=> overrides[idx]!==undefined ? Number(overrides[idx]) : rpt.round2(v));
+  }
+  function dataRow(rowKey, label, defaults, opts){
     opts = opts || {};
-    const cells = arr.map(v=>`<td>${opts.round2?rpt.round2(v):v}</td>`).join("");
-    const total = opts.sumType==="last" ? arr[arr.length-1] : rpt.sum(arr);
-    return `<tr><td class="name-cell" style="text-align:left;${opts.bold?'font-weight:700;':''}">${label}</td>${cells}<td style="border-left:2px solid var(--line-strong);font-weight:700;">${rpt.round2(total)}</td></tr>`;
+    const values = effectiveValues(rowKey, defaults);
+    const overrides = manual[rowKey] || {};
+    const cells = values.map((v,idx)=>{
+      const isOverridden = overrides[idx]!==undefined;
+      return `<td><input type="number" step="0.5" class="cell-code" style="width:52px;${isOverridden?'background:rgba(184,144,46,0.18);font-weight:700;':''}" data-annual-row="${rowKey}" data-annual-month="${idx}" value="${v}"></td>`;
+    }).join("");
+    const total = opts.sumType==="last" ? values[values.length-1] : rpt.sum(values);
+    rowDefs.push({key:rowKey, label, values, sumType:opts.sumType});
+    return `<tr><td class="name-cell" style="text-align:left;${opts.bold?'font-weight:700;':''}">${label}</td>${cells}<td style="border-left:2px solid var(--line-strong);font-weight:700;" data-annual-total="${rowKey}">${rpt.round2(total)}</td></tr>`;
   }
 
   let tbody = "<tbody>";
   tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">請假時數（小時）</td></tr>`;
   rpt.leaveCodes.forEach(c=>{
-    tbody += dataRow(STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c], {round2:true});
+    tbody += dataRow("leave_"+c, STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c]);
   });
-  tbody += dataRow("請假總計", rpt.leaveTotalRow, {round2:true, bold:true});
+  tbody += dataRow("leaveTotal", "請假總計", rpt.leaveTotalRow, {bold:true});
 
   tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">加班別（小時）</td></tr>`;
-  tbody += dataRow("補休A（加班轉補休）", rpt.otComp, {round2:true});
-  tbody += dataRow("給薪B（加班領薪）", rpt.otPaid, {round2:true});
-  tbody += dataRow("業務加班時數 C=A+B", rpt.businessOT, {round2:true, bold:true});
+  tbody += dataRow("otComp", "補休A（加班轉補休）", rpt.otComp);
+  tbody += dataRow("otPaid", "給薪B（加班領薪）", rpt.otPaid);
+  tbody += dataRow("businessOT", "業務加班時數 C=A+B", rpt.businessOT, {bold:true});
 
   tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">補休銀行（全單位加總，小時）</td></tr>`;
-  tbody += dataRow("補休(上月結餘)A", rpt.compOpening, {round2:true});
-  tbody += dataRow("補休(本月新增)B", rpt.compEarned, {round2:true});
-  tbody += dataRow("補休假使用 C", rpt.compUsed, {round2:true});
-  tbody += dataRow("本月結餘 D=A+B-C", rpt.compClosing, {round2:true, sumType:"last", bold:true});
+  tbody += dataRow("compOpening", "補休(上月結餘)A", rpt.compOpening);
+  tbody += dataRow("compEarned", "補休(本月新增)B", rpt.compEarned);
+  tbody += dataRow("compUsed", "補休假使用 C", rpt.compUsed);
+  tbody += dataRow("compClosing", "本月結餘 D=A+B-C", rpt.compClosing, {sumType:"last", bold:true});
 
   tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">特休（年假）</td></tr>`;
-  tbody += dataRow("年假使用時數(當月)", rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0), {round2:true});
-  tbody += dataRow("年假使用累計(年初至今)", rpt.vCumulative, {round2:true, sumType:"last"});
+  tbody += dataRow("vMonthly", "年假使用時數(當月)", rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0));
+  tbody += dataRow("vCumulative", "年假使用累計(年初至今)", rpt.vCumulative, {sumType:"last"});
+  tbody += dataRow("vBalance", "結餘年休（全單位，時）", rpt.months.map(()=>0), {sumType:"last"});
 
   tbody += "</tbody>";
   table.innerHTML = thead+tbody;
 
   const monthsWithData = rpt.hasData.filter(Boolean).length;
   setStatus("annualStatus",
-    monthsWithData===0
-      ? `${westernYear} 年目前還沒有任何已儲存的月份班表，表格會全部顯示 0。`
-      : `${westernYear} 年目前有 ${monthsWithData} 個月已匯入班表，其餘月份視為 0。「補休(上月結餘)」已包含跨年度往前追溯的結轉餘額。`,
+    (monthsWithData===0
+      ? `${westernYear} 年目前還沒有任何已儲存的月份班表，表格預設全部是 0。`
+      : `${westernYear} 年目前有 ${monthsWithData} 個月已匯入班表，其餘月份預設為 0。`)
+    + " 每一格都可以直接點選修改（例如補上還沒導入本系統的舊資料），改過的格子會有黃底標示；清空該格會恢復成自動算出的數字。",
     "");
-  ANNUAL_LAST = rpt;
+  ANNUAL_LAST = {rpt, rowDefs, year: westernYear};
 }
 let ANNUAL_LAST = null;
+
+document.getElementById("annualTable").addEventListener("change", async (e)=>{
+  const rowKey = e.target.dataset.annualRow;
+  if(rowKey===undefined) return;
+  const monthIdx = Number(e.target.dataset.annualMonth);
+  const year = ANNUAL_LAST.year;
+  const val = e.target.value.trim();
+  ANNUAL_MANUAL_CACHE[year] = ANNUAL_MANUAL_CACHE[year] || {};
+  ANNUAL_MANUAL_CACHE[year][rowKey] = ANNUAL_MANUAL_CACHE[year][rowKey] || {};
+  const rpt = ANNUAL_LAST.rpt;
+  // figure out this row's computed default so clearing the field reverts to it
+  const defaultsMap = {
+    leaveTotal: rpt.leaveTotalRow, otComp: rpt.otComp, otPaid: rpt.otPaid, businessOT: rpt.businessOT,
+    compOpening: rpt.compOpening, compEarned: rpt.compEarned, compUsed: rpt.compUsed, compClosing: rpt.compClosing,
+    vMonthly: rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0), vCumulative: rpt.vCumulative,
+    vBalance: rpt.months.map(()=>0)
+  };
+  let defaults = defaultsMap[rowKey];
+  if(defaults===undefined && rowKey.startsWith("leave_")){
+    defaults = rpt.leaveHoursByCode[rowKey.slice(6)];
+  }
+  const defaultVal = defaults ? rpt.round2(defaults[monthIdx]) : 0;
+  if(val==="" || Number(val)===defaultVal){
+    delete ANNUAL_MANUAL_CACHE[year][rowKey][monthIdx];
+  }else{
+    ANNUAL_MANUAL_CACHE[year][rowKey][monthIdx] = Number(val);
+  }
+  await saveAnnualManual(year);
+  renderAnnualTab();
+});
+
 document.getElementById("annualYearInput").addEventListener("change", renderAnnualTab);
 document.getElementById("exportAnnualCsvBtn").addEventListener("click", ()=>{
   if(!ANNUAL_LAST) return;
-  const rpt = ANNUAL_LAST;
+  const {rpt, rowDefs} = ANNUAL_LAST;
   const header = ["項目", ...rpt.months.map(m=>m+"月"), "累計"];
   const lines = [header.join(",")];
-  function line(label, arr, sumType){
-    const total = sumType==="last" ? arr[arr.length-1] : rpt.sum(arr);
-    lines.push([label, ...arr.map(v=>rpt.round2(v)), rpt.round2(total)].join(","));
-  }
-  rpt.leaveCodes.forEach(c=> line(STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c]));
-  line("請假總計", rpt.leaveTotalRow);
-  line("補休A（加班轉補休）", rpt.otComp);
-  line("給薪B（加班領薪）", rpt.otPaid);
-  line("業務加班時數C=A+B", rpt.businessOT);
-  line("補休(上月結餘)A", rpt.compOpening);
-  line("補休(本月新增)B", rpt.compEarned);
-  line("補休假使用C", rpt.compUsed);
-  line("本月結餘D=A+B-C", rpt.compClosing, "last");
-  line("年假使用時數(當月)", rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0));
-  line("年假使用累計(年初至今)", rpt.vCumulative, "last");
+  rowDefs.forEach(r=>{
+    const total = r.sumType==="last" ? r.values[r.values.length-1] : rpt.sum(r.values);
+    lines.push([r.label, ...r.values, rpt.round2(total)].join(","));
+  });
   const csv = lines.join("\n");
   const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = `年度統計報表_${rpt.year}.csv`; a.click();
   URL.revokeObjectURL(url);
+});
+
+/* ---------------- import historical annual report (.xls/.xlsx) ---------------- */
+const HIST_LABEL_MAP = {
+  "婚假":"leave_婚", "產假":"leave_產", "產檢假":"leave_產檢", "安胎假":"leave_安胎",
+  "喪假":"leave_喪", "病假":"leave_病", "原住民假":"leave_原", "事假":"leave_事",
+  "公假":"leave_公", "選舉假":"leave_選舉", "考試假":"leave_考試", "年假":"leave_V",
+  "疫苗接種假":"leave_疫苗", "生理假":"leave_生理", "家庭照顧假":"leave_家庭照顧",
+  "災害處理假":"leave_災害", "請假總計":"leaveTotal",
+  "補休A":"otComp", "給薪B":"otPaid", "加班補休":"compUsed",
+  "業務加班時數C":"businessOT",
+  "補休(上月結餘)A":"compOpening", "補休(本月新增)B":"compEarned",
+  "補休假C":"compUsed", "本月結餘D=A+B-C":"compClosing",
+  "累計已休年休":"vCumulative", "結餘年休":"vBalance"
+};
+function normalizeHistLabel(s){
+  let t = String(s==null?"":s).trim();
+  t = t.replace(/\s+/g,"");
+  t = t.replace(/\((h|hr)\)/gi,"");
+  t = t.replace(/（(h|hr)）/gi,"");
+  t = t.replace("(C=A+B)","").replace("（C=A+B）","");
+  return t;
+}
+document.getElementById("importHistBtn").addEventListener("click", async ()=>{
+  const fileInput = document.getElementById("histReportInput");
+  if(!fileInput.files[0]){ setStatus("histImportStatus","請先選擇檔案。","err"); return; }
+  setStatus("histImportStatus","讀取檔案中...","");
+  try{
+    const buf = await fileInput.files[0].arrayBuffer();
+    const wb = XLSX.read(buf, {type:"array"});
+    const yearSheets = wb.SheetNames
+      .map(name=>({name, m: name.trim().match(/^OR\s*(\d+)\s*$/i)}))
+      .filter(x=>x.m);
+    if(yearSheets.length===0){
+      setStatus("histImportStatus","在這個檔案裡找不到任何 OR+民國年 命名的工作表（例如 OR114）。","err");
+      return;
+    }
+    let importedYears = [];
+    for(const {name, m} of yearSheets){
+      const rocYear = Number(m[1]);
+      const westernYear = rocYear + 1911;
+      const sheet = wb.Sheets[name];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:""});
+      const manual = await loadAnnualManual(westernYear);
+      let matchedRows = 0;
+      rows.forEach(row=>{
+        const rawLabel = (row[1]!==""&&row[1]!==undefined&&row[1]!==null) ? row[1] : row[0];
+        const label = normalizeHistLabel(rawLabel);
+        if(!label || !HIST_LABEL_MAP.hasOwnProperty(label)) return;
+        const rowKey = HIST_LABEL_MAP[label];
+        matchedRows++;
+        manual[rowKey] = manual[rowKey] || {};
+        for(let mo=0; mo<12; mo++){
+          const raw = row[2+mo]; // columns C..N = Jan..Dec
+          if(raw===""||raw===undefined||raw===null) continue;
+          const n = Number(raw);
+          if(!isNaN(n)) manual[rowKey][mo] = n;
+        }
+      });
+      ANNUAL_MANUAL_CACHE[westernYear] = manual;
+      await saveAnnualManual(westernYear);
+      importedYears.push(`${westernYear}(民國${rocYear}，${matchedRows}列)`);
+    }
+    setStatus("histImportStatus", `匯入完成：${importedYears.join("、")}。請切換「年度」查看對應年份的結果，覆蓋的格子會顯示黃底。`, "ok");
+    if(yearSheets.length){
+      const latestWestern = Math.max(...yearSheets.map(x=>Number(x.m[1])+1911));
+      document.getElementById("annualYearInput").value = latestWestern;
+      renderAnnualTab();
+    }
+  }catch(e){
+    console.error(e);
+    setStatus("histImportStatus","匯入失敗："+e.message,"err");
+  }
 });
 /* ---------------- init ---------------- */
 async function init(){
