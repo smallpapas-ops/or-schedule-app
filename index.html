@@ -172,6 +172,7 @@
     <button data-tab="import">匯入班表</button>
     <button data-tab="report">本月報表</button>
     <button data-tab="leave">特休總覽</button>
+    <button data-tab="annual">年度統計報表</button>
     <button data-tab="settings">代碼設定</button>
     <button data-tab="sync">雲端同步</button>
   </nav>
@@ -184,7 +185,7 @@
       <div class="table-wrap">
         <table id="empTable">
           <thead>
-            <tr><th class="name-cell">員編</th><th class="name-cell">姓名</th><th>到職日</th><th>特休基準日<br>（育嬰假/留停等調整用）</th><th>年資</th><th>本年度特休(天)</th><th></th></tr>
+            <tr><th class="name-cell">員編</th><th class="name-cell">姓名</th><th>到職日</th><th>特休基準日<br>（育嬰假/留停等調整用）</th><th>年資</th><th>本年度特休(天)</th><th>補休期初餘額<br>（小時，開始用本APP前的結餘）</th><th></th></tr>
           </thead>
           <tbody id="empTbody"></tbody>
         </table>
@@ -308,6 +309,28 @@
     </div>
   </section>
 
+  <!-- ============ TAB: ANNUAL UNIT REPORT ============ -->
+  <section class="panel" id="panel-annual">
+    <div class="card">
+      <h2>年度統計報表（全單位，仿「出缺勤暨加班補休統計報表」格式）</h2>
+      <p class="hint">
+        這張表彙整<b>全單位</b>當年度每個月的假別使用時數、加班（補休A／給薪B）與補休銀行結轉餘額，資料來源是各月「匯入班表」＋「調整」視窗累積的紀錄。<br>
+        <b>手術台數、業務量、開台數、編制/在職人力</b>這幾列不是來自班表，需要另外維護，這裡先不產生；只呈現可以從班表自動算出來的假別與加班/補休部分。
+      </p>
+      <div class="row">
+        <div class="field">
+          <label>年度</label>
+          <input type="number" id="annualYearInput" style="width:90px;">
+        </div>
+        <button class="btn secondary" id="exportAnnualCsvBtn">匯出 CSV</button>
+      </div>
+      <div class="table-wrap" style="margin-top:14px;">
+        <table id="annualTable"></table>
+      </div>
+      <p class="status-line" id="annualStatus"></p>
+    </div>
+  </section>
+
   <!-- ============ TAB: SETTINGS ============ -->
   <section class="panel" id="panel-settings">
     <div class="card">
@@ -366,8 +389,12 @@
       <div class="row" style="margin-top:10px;">
         <button class="btn" id="connectFirebaseBtn">測試連線並啟用同步</button>
         <button class="btn ghost" id="disconnectFirebaseBtn">停用雲端同步（改回本機儲存）</button>
-        <button class="btn secondary" id="pullCloudBtn">從雲端重新整理資料</button>
       </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn secondary" id="pushCloudBtn">⬆ 把這台裝置的資料上傳到雲端（覆蓋雲端）</button>
+        <button class="btn secondary" id="pullCloudBtn">⬇ 從雲端下載最新資料（覆蓋本機畫面）</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">第一次在「主要那台裝置」（例如平常都在用的桌機）啟用同步時，請按一次「⬆ 上傳到雲端」，把目前的員工名冊、班表都送上去；之後在其他裝置（例如手機）貼同一組設定連線後，改按「⬇ 從雲端下載」把資料抓下來。之後兩邊互相有更新，也可以照這個方向手動同步一次。</p>
       <p class="status-line" id="syncStatus"></p>
     </div>
   </section>
@@ -504,7 +531,7 @@ const DEFAULT_CONFIG = {
   hoursPerLeave: 8,
   workCodes: ["D","DX","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","D14","N","E","12-8"],
   restCodes: ["休","例","國"],
-  leaveCodes: {"V":"特休","喪":"喪假","產檢":"產檢假","原":"原住民假","公":"公假","婚":"婚假","生理":"生理假","事":"事假"}
+  leaveCodes: {"V":"特休","喪":"喪假","產檢":"產檢假","原":"原住民假","公":"公假","婚":"婚假","生理":"生理假","事":"事假","產":"產假","安胎":"安胎假","病":"病假","選舉":"選舉假","考試":"考試假","疫苗":"疫苗接種假","家庭照顧":"家庭照顧假","災害":"災害處理假"}
 };
 
 let STATE = {
@@ -562,6 +589,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn=>{
     document.getElementById("panel-"+btn.dataset.tab).classList.add("active");
     if(btn.dataset.tab==="report") renderReportTab();
     if(btn.dataset.tab==="leave") renderLeaveTab();
+    if(btn.dataset.tab==="annual") renderAnnualTab();
   });
 });
 
@@ -590,6 +618,7 @@ function renderEmployeesTab(){
       </td>
       <td>${y}年${m}個月</td>
       <td><b>${ent}</b></td>
+      <td><input type="number" step="0.5" class="cell-code" style="width:70px;" value="${emp.compOpening!==undefined?emp.compOpening:0}" data-f="compOpening" data-i="${idx}"></td>
       <td><button class="icon-btn" data-del="${idx}">✕</button></td>`;
     tbody.appendChild(tr);
   });
@@ -597,7 +626,7 @@ function renderEmployeesTab(){
 document.getElementById("empTbody").addEventListener("input",(e)=>{
   const f = e.target.dataset.f, i = e.target.dataset.i;
   if(f===undefined || i===undefined) return;
-  STATE.employees[i][f] = e.target.value;
+  STATE.employees[i][f] = f==="compOpening" ? Number(e.target.value)||0 : e.target.value;
   if(f==="hire" || f==="entBase") renderEmployeesTab();
 });
 document.getElementById("empTbody").addEventListener("click",(e)=>{
@@ -613,7 +642,7 @@ document.getElementById("empTbody").addEventListener("click",(e)=>{
   }
 });
 document.getElementById("addEmpBtn").addEventListener("click",()=>{
-  STATE.employees.push({id:"", name:"", hire: fmtDate(new Date())});
+  STATE.employees.push({id:"", name:"", hire: fmtDate(new Date()), compOpening:0});
   renderEmployeesTab();
 });
 document.getElementById("resetEmpBtn").addEventListener("click", async ()=>{
@@ -854,15 +883,29 @@ document.getElementById("parseXlsxBtn").addEventListener("click", ()=>{
 
   const dayCount = Number(document.getElementById("targetDays").value) || 31;
 
-  // score each row by how many cells parse as an integer within 1..dayCount
+  // Score each row by the LONGEST run of consecutive columns whose values form
+  // an ascending day sequence (e.g. 14,15,16...30,1,2...11,12...31), allowing the
+  // wrap-around these hospital sheets use. This is far more reliable than just
+  // counting how many cells fall in 1..dayCount, since summary/pivot tables lower
+  // in the sheet can also contain plenty of small numbers by coincidence.
   let bestRow = 0, bestScore = -1;
   XLSX_SHEET_ROWS.forEach((row, ridx)=>{
-    let score = 0;
+    let runLen = 0, bestRun = 0, prev = null;
     row.forEach(cell=>{
-      const n = parseInt(String(cell).trim(),10);
-      if(!isNaN(n) && n>=1 && n<=dayCount && String(n)===String(cell).trim()) score++;
+      const s = String(cell).trim();
+      const n = parseInt(s,10);
+      const isDay = !isNaN(n) && n>=1 && n<=31 && String(n)===s;
+      if(isDay && (prev===null || n===prev+1 || (prev>=28 && n===1))){
+        runLen++;
+      }else if(isDay){
+        runLen = 1;
+      }else{
+        runLen = 0;
+      }
+      if(isDay) prev = n; else prev = null;
+      if(runLen > bestRun) bestRun = runLen;
     });
-    if(score > bestScore){ bestScore = score; bestRow = ridx; }
+    if(bestRun > bestScore){ bestScore = bestRun; bestRow = ridx; }
   });
 
   const headerRowSel = document.getElementById("xlsxHeaderRowSelect");
@@ -951,6 +994,27 @@ function dayLeaveHours(dv){
   if(dv && dv.v!==undefined) return {"V": dv.v};
   return {};
 }
+function getSortedMonthKeys(){
+  return Object.keys(STATE.schedules).slice().sort(); // "YYYY-MM" sorts correctly as strings
+}
+/** Per-employee compensatory-time-off ledger, carried forward chronologically
+ *  across every month that has a saved schedule: closing(M) = opening(M) + earned(M) - used(M) */
+function computeEmployeeCompLedger(emp){
+  const months = getSortedMonthKeys();
+  let running = Number(emp.compOpening)||0;
+  const ledger = {};
+  months.forEach(monthKey=>{
+    const rows = computeMonthReport(monthKey);
+    const r = rows.find(x=>x.emp.id===emp.id);
+    const earned = r ? (r.otCompHours||0) : 0;
+    const used = r ? (r.compHours||0) : 0;
+    const opening = running;
+    const closing = opening + earned - used;
+    ledger[monthKey] = {opening, earned, used, closing};
+    running = closing;
+  });
+  return ledger;
+}
 function computeMonthReport(monthKey){
   const sched = STATE.schedules[monthKey];
   if(!sched) return [];
@@ -972,11 +1036,17 @@ function computeMonthReport(monthKey){
     });
     const workHours = workDays * STATE.config.hoursPerShift;
     const empAdj = adjForMonth[emp.id] || {};
-    let otHours = 0, compHours = 0, totalManualLeaveHours = 0;
+    let otCompHours = 0, otPaidHours = 0, compHours = 0, totalManualLeaveHours = 0;
     const manualLeaveHours = {};
     leaveCodes.forEach(c=>manualLeaveHours[c]=0);
     Object.values(empAdj).forEach(d=>{
-      otHours += Number(d.ot)||0;
+      if(d.otComp!==undefined || d.otPaid!==undefined){
+        otCompHours += Number(d.otComp)||0;
+        otPaidHours += Number(d.otPaid)||0;
+      }else if(d.ot!==undefined){
+        // legacy data saved before comp/paid split existed: assume it was heading to comp time
+        otCompHours += Number(d.ot)||0;
+      }
       compHours += Number(d.comp)||0;
       const lv = dayLeaveHours(d);
       Object.entries(lv).forEach(([code,hrs])=>{
@@ -985,6 +1055,7 @@ function computeMonthReport(monthKey){
         manualLeaveHours[code] = (manualLeaveHours[code]||0) + h;
       });
     });
+    const otHours = otCompHours + otPaidHours;
     Object.entries(manualLeaveHours).forEach(([code,hrs])=>{
       if(hrs){
         leaveTotals[code] = Math.round(((leaveTotals[code]||0) + hrs/(STATE.config.hoursPerLeave||8))*100)/100;
@@ -992,7 +1063,7 @@ function computeMonthReport(monthKey){
       }
     });
     const totalHours = workHours + otHours - compHours - totalManualLeaveHours;
-    return {emp, workDays, workHours, leaveTotals, otHours, compHours, manualLeaveHours, totalManualLeaveHours, totalHours};
+    return {emp, workDays, workHours, leaveTotals, otHours, otCompHours, otPaidHours, compHours, manualLeaveHours, totalManualLeaveHours, totalHours};
   });
 }
 function renderReportTab(){
@@ -1015,26 +1086,26 @@ function drawReportTable(){
       <th class="name-cell" rowspan="2">姓名</th>
       <th colspan="2">排定</th>
       <th colspan="${leaveCodes.length}">假別使用（天，含手動調整）</th>
-      <th colspan="3" style="${divider}">異動後</th>
+      <th colspan="4" style="${divider}">異動後</th>
       <th rowspan="2"></th>
     </tr>
     <tr>
       <th>上班天數</th><th>排定時數</th>
       ${leaveCodes.map(c=>`<th>${STATE.config.leaveCodes[c]}</th>`).join("")}
-      <th style="${divider}">加班時數</th><th>補休使用(時)</th><th>異動後時數</th>
+      <th style="${divider}">加班-補休A(時)</th><th>加班-給薪B(時)</th><th>補休使用(時)</th><th>異動後時數</th>
     </tr>
   </thead>`;
   let tbody = "<tbody>";
   rows.forEach(r=>{
     tbody += `<tr><td class="name-cell">${r.emp.id}</td><td class="name-cell">${r.emp.name}</td><td>${r.workDays}</td><td>${r.workHours}</td>`;
     leaveCodes.forEach(c=> tbody += `<td>${r.leaveTotals[c]||0}</td>`);
-    tbody += `<td style="${divider}">${r.otHours||0}</td><td>${r.compHours||0}</td><td style="color:var(--teal-deep);"><b>${r.totalHours}</b></td>`;
+    tbody += `<td style="${divider}">${r.otCompHours||0}</td><td>${r.otPaidHours||0}</td><td>${r.compHours||0}</td><td style="color:var(--teal-deep);"><b>${r.totalHours}</b></td>`;
     tbody += `<td><button class="icon-btn" data-adjust="${r.emp.id}" title="逐日輸入加班/各假別使用/補休使用時數" style="color:var(--teal-deep);">✎ 調整</button></td>`;
     tbody += `</tr>`;
   });
   tbody += "</tbody>";
   table.innerHTML = thead+tbody;
-  setStatus("reportStatus", `共 ${rows.length} 位員工，資料月份 ${monthKey}。假別天數已自動併入「調整」視窗手動輸入的小時數；「異動後」= 排定時數 + 加班時數 − 各假別使用時數 − 補休使用時數。`, "");
+  setStatus("reportStatus", `共 ${rows.length} 位員工，資料月份 ${monthKey}。假別天數已自動併入「調整」視窗手動輸入的小時數；「異動後」= 排定時數 + 加班(補休A+給薪B) − 各假別使用時數 − 補休使用時數。`, "");
 }
 document.getElementById("reportTable").addEventListener("click",(e)=>{
   const empId = e.target.closest("[data-adjust]") ? e.target.closest("[data-adjust]").dataset.adjust : null;
@@ -1061,15 +1132,19 @@ function openAdjustModal(empId){
     for(let d=1; d<=sched.dayCount; d++){
       const dv = existing[d] || {};
       let val = "";
-      if(attr==="ot" || attr==="comp") val = dv[attr]!==undefined ? dv[attr] : "";
-      else { const lv = dayLeaveHours(dv); val = lv[extraCode]!==undefined ? lv[extraCode] : ""; }
+      if(attr==="otComp"){
+        val = dv.otComp!==undefined ? dv.otComp : (dv.ot!==undefined ? dv.ot : "");
+      } else if(attr==="otPaid" || attr==="comp"){
+        val = dv[attr]!==undefined ? dv[attr] : "";
+      } else { const lv = dayLeaveHours(dv); val = lv[extraCode]!==undefined ? lv[extraCode] : ""; }
       const dataAttrs = attr==="leave" ? `data-adj="leave" data-code="${extraCode}"` : `data-adj="${attr}"`;
       row += `<td><input type="number" step="0.5" class="cell-code" style="width:44px;" ${dataAttrs} data-day="${d}" value="${val}"></td>`;
     }
     return row + "</tr>";
   }
 
-  let rowsHtml = buildRow("加班","ot");
+  let rowsHtml = buildRow("加班-轉補休(補休A)","otComp");
+  rowsHtml += buildRow("加班-領薪(給薪B)","otPaid");
   leaveCodes.forEach(code=>{
     rowsHtml += buildRow(STATE.config.leaveCodes[code]+"使用", "leave", code);
   });
@@ -1090,9 +1165,11 @@ document.getElementById("saveAdjustBtn").addEventListener("click", async ()=>{
   const leaveCodes = Object.keys(STATE.config.leaveCodes);
   const dayData = {};
   for(let d=1; d<=dayCount; d++){
-    const otEl = document.querySelector(`#adjustGridTable input[data-adj="ot"][data-day="${d}"]`);
+    const otCompEl = document.querySelector(`#adjustGridTable input[data-adj="otComp"][data-day="${d}"]`);
+    const otPaidEl = document.querySelector(`#adjustGridTable input[data-adj="otPaid"][data-day="${d}"]`);
     const compEl = document.querySelector(`#adjustGridTable input[data-adj="comp"][data-day="${d}"]`);
-    const otVal = otEl ? otEl.value.trim() : "";
+    const otCompVal = otCompEl ? otCompEl.value.trim() : "";
+    const otPaidVal = otPaidEl ? otPaidEl.value.trim() : "";
     const compVal = compEl ? compEl.value.trim() : "";
     const leaveObj = {};
     leaveCodes.forEach(code=>{
@@ -1100,9 +1177,10 @@ document.getElementById("saveAdjustBtn").addEventListener("click", async ()=>{
       const val = el ? el.value.trim() : "";
       if(val!=="") leaveObj[code] = Number(val);
     });
-    if(otVal!=="" || compVal!=="" || Object.keys(leaveObj).length){
+    if(otCompVal!=="" || otPaidVal!=="" || compVal!=="" || Object.keys(leaveObj).length){
       dayData[d] = {};
-      if(otVal!=="") dayData[d].ot = Number(otVal);
+      if(otCompVal!=="") dayData[d].otComp = Number(otCompVal);
+      if(otPaidVal!=="") dayData[d].otPaid = Number(otPaidVal);
       if(compVal!=="") dayData[d].comp = Number(compVal);
       if(Object.keys(leaveObj).length) dayData[d].leave = leaveObj;
     }
@@ -1119,10 +1197,10 @@ document.getElementById("exportCsvBtn").addEventListener("click",()=>{
   if(!monthKey) return;
   const rows = computeMonthReport(monthKey);
   const leaveCodes = Object.keys(STATE.config.leaveCodes);
-  let csv = "員編,姓名,上班天數,排定時數,"+leaveCodes.map(c=>STATE.config.leaveCodes[c]).join(",")+",加班時數,補休使用(時),異動後時數\n";
+  let csv = "員編,姓名,上班天數,排定時數,"+leaveCodes.map(c=>STATE.config.leaveCodes[c]).join(",")+",加班-補休A(時),加班-給薪B(時),補休使用(時),異動後時數\n";
   rows.forEach(r=>{
     csv += `${r.emp.id},${r.emp.name},${r.workDays},${r.workHours},`+leaveCodes.map(c=>r.leaveTotals[c]||0).join(",")
-         + `,${r.otHours||0},${r.compHours||0},${r.totalHours}\n`;
+         + `,${r.otCompHours||0},${r.otPaidHours||0},${r.compHours||0},${r.totalHours}\n`;
   });
   const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
@@ -1149,7 +1227,7 @@ function gaugeSvg(pct, size){
 function renderLeaveTab(){
   const ref = parseDate(document.getElementById("refDate").value || fmtDate(new Date()));
   const table = document.getElementById("leaveTable");
-  let thead = `<thead><tr><th class="name-cell">員編</th><th class="name-cell">姓名</th><th>到職日</th><th>特休基準日</th><th>週年起算日</th><th>本年度天數</th><th>已用(V)</th><th>剩餘</th><th></th></tr></thead>`;
+  let thead = `<thead><tr><th class="name-cell">員編</th><th class="name-cell">姓名</th><th>到職日</th><th>特休基準日</th><th>週年起算日</th><th>本年度天數</th><th>已用(V)</th><th>剩餘</th><th></th><th style="border-left:2px solid var(--line-strong);">補休結餘(時)</th></tr></thead>`;
   let tbody = "<tbody>";
   STATE.employees.forEach(emp=>{
     const baseDate = effectiveEntBaseDate(emp);
@@ -1177,6 +1255,10 @@ function renderLeaveTab(){
     used = Math.round(used*100)/100;
     const remaining = entitlement - used;
     const pct = entitlement>0 ? remaining/entitlement : 0;
+    const ledger = computeEmployeeCompLedger(emp);
+    const monthKeys = getSortedMonthKeys();
+    const lastMonth = monthKeys[monthKeys.length-1];
+    const compBalance = lastMonth ? Math.round(ledger[lastMonth].closing*100)/100 : (Number(emp.compOpening)||0);
     tbody += `<tr>
       <td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}</td>
       <td>${emp.hire}</td>
@@ -1185,12 +1267,154 @@ function renderLeaveTab(){
       <td>${entitlement}</td><td>${used}</td>
       <td style="color:${remaining<0?'var(--brick)':'var(--ink)'};font-weight:700;">${remaining}</td>
       <td>${gaugeSvg(pct,36)}</td>
+      <td style="border-left:2px solid var(--line-strong);font-weight:600;color:${compBalance<0?'var(--brick)':'var(--ink)'};">${compBalance}</td>
     </tr>`;
   });
   tbody += "</tbody>";
   table.innerHTML = thead+tbody;
 }
 
+/* ---------------- annual unit report (mirrors OR unit's 出缺勤暨加班補休統計報表) ---------------- */
+function computeAnnualReport(year){
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  const months = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const monthKeysInYear = months.map(m=>`${year}-${String(m).padStart(2,"0")}`);
+
+  const leaveHoursByCode = {}; leaveCodes.forEach(c=>leaveHoursByCode[c]=months.map(()=>0));
+  const otComp = months.map(()=>0), otPaid = months.map(()=>0);
+  const compOpening = months.map(()=>0), compEarned = months.map(()=>0), compUsed = months.map(()=>0), compClosing = months.map(()=>0);
+  const hasData = months.map(()=>false);
+
+  // per-employee comp ledgers, computed once across ALL saved months (not just this year)
+  // so opening balances correctly carry over from December of the previous year.
+  const ledgers = {};
+  STATE.employees.forEach(emp=>{ ledgers[emp.id] = computeEmployeeCompLedger(emp); });
+
+  months.forEach((m,idx)=>{
+    const monthKey = monthKeysInYear[idx];
+    if(!STATE.schedules[monthKey]) return;
+    hasData[idx] = true;
+    const rows = computeMonthReport(monthKey);
+    rows.forEach(r=>{
+      leaveCodes.forEach(c=>{
+        leaveHoursByCode[c][idx] += (r.leaveTotals[c]||0) * (STATE.config.hoursPerLeave||8);
+      });
+      otComp[idx] += r.otCompHours||0;
+      otPaid[idx] += r.otPaidHours||0;
+      compUsed[idx] += r.compHours||0;
+      const led = ledgers[r.emp.id] && ledgers[r.emp.id][monthKey];
+      if(led){
+        compOpening[idx] += led.opening;
+        compEarned[idx] += led.earned;
+        compClosing[idx] += led.closing;
+      }
+    });
+  });
+
+  const leaveTotalRow = months.map((m,idx)=> leaveCodes.reduce((s,c)=> s+leaveHoursByCode[c][idx], 0));
+  const businessOT = months.map((m,idx)=> otComp[idx]+otPaid[idx]);
+
+  // 年假(特休) cumulative-used-within-year, running left to right
+  const vCode = "V";
+  let runningV = 0;
+  const vCumulative = months.map((m,idx)=>{ runningV += (leaveHoursByCode[vCode]?leaveHoursByCode[vCode][idx]:0); return runningV; });
+
+  const sum = arr => Math.round(arr.reduce((a,b)=>a+b,0)*100)/100;
+  const round2 = v => Math.round(v*100)/100;
+
+  return {
+    year, months, hasData, leaveCodes,
+    leaveHoursByCode, leaveTotalRow,
+    otComp, otPaid, businessOT,
+    compOpening, compEarned, compUsed, compClosing,
+    vCumulative,
+    sum, round2
+  };
+}
+
+function renderAnnualTab(){
+  const yearInput = document.getElementById("annualYearInput");
+  if(!yearInput.value) yearInput.value = new Date().getFullYear() - 1911; // default to current 民國 year guess
+  const year = yearInput.value.trim();
+  // accept either 民國 (e.g. 115) or western (e.g. 2026) input: normalize to the western
+  // year actually used as the schedule key prefix (schedules are keyed like "2026-07")
+  let westernYear = Number(year);
+  if(westernYear < 1000) westernYear += 1911;
+  const rpt = computeAnnualReport(westernYear);
+
+  const table = document.getElementById("annualTable");
+  const mHeaders = rpt.months.map(m=>`<th>${m}月</th>`).join("");
+  let thead = `<thead><tr><th class="name-cell">項目</th>${mHeaders}<th style="border-left:2px solid var(--line-strong);">累計</th></tr></thead>`;
+
+  function dataRow(label, arr, opts){
+    opts = opts || {};
+    const cells = arr.map(v=>`<td>${opts.round2?rpt.round2(v):v}</td>`).join("");
+    const total = opts.sumType==="last" ? arr[arr.length-1] : rpt.sum(arr);
+    return `<tr><td class="name-cell" style="text-align:left;${opts.bold?'font-weight:700;':''}">${label}</td>${cells}<td style="border-left:2px solid var(--line-strong);font-weight:700;">${rpt.round2(total)}</td></tr>`;
+  }
+
+  let tbody = "<tbody>";
+  tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">請假時數（小時）</td></tr>`;
+  rpt.leaveCodes.forEach(c=>{
+    tbody += dataRow(STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c], {round2:true});
+  });
+  tbody += dataRow("請假總計", rpt.leaveTotalRow, {round2:true, bold:true});
+
+  tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">加班別（小時）</td></tr>`;
+  tbody += dataRow("補休A（加班轉補休）", rpt.otComp, {round2:true});
+  tbody += dataRow("給薪B（加班領薪）", rpt.otPaid, {round2:true});
+  tbody += dataRow("業務加班時數 C=A+B", rpt.businessOT, {round2:true, bold:true});
+
+  tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">補休銀行（全單位加總，小時）</td></tr>`;
+  tbody += dataRow("補休(上月結餘)A", rpt.compOpening, {round2:true});
+  tbody += dataRow("補休(本月新增)B", rpt.compEarned, {round2:true});
+  tbody += dataRow("補休假使用 C", rpt.compUsed, {round2:true});
+  tbody += dataRow("本月結餘 D=A+B-C", rpt.compClosing, {round2:true, sumType:"last", bold:true});
+
+  tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">特休（年假）</td></tr>`;
+  tbody += dataRow("年假使用時數(當月)", rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0), {round2:true});
+  tbody += dataRow("年假使用累計(年初至今)", rpt.vCumulative, {round2:true, sumType:"last"});
+
+  tbody += "</tbody>";
+  table.innerHTML = thead+tbody;
+
+  const monthsWithData = rpt.hasData.filter(Boolean).length;
+  setStatus("annualStatus",
+    monthsWithData===0
+      ? `${westernYear} 年目前還沒有任何已儲存的月份班表，表格會全部顯示 0。`
+      : `${westernYear} 年目前有 ${monthsWithData} 個月已匯入班表，其餘月份視為 0。「補休(上月結餘)」已包含跨年度往前追溯的結轉餘額。`,
+    "");
+  ANNUAL_LAST = rpt;
+}
+let ANNUAL_LAST = null;
+document.getElementById("annualYearInput").addEventListener("change", renderAnnualTab);
+document.getElementById("exportAnnualCsvBtn").addEventListener("click", ()=>{
+  if(!ANNUAL_LAST) return;
+  const rpt = ANNUAL_LAST;
+  const header = ["項目", ...rpt.months.map(m=>m+"月"), "累計"];
+  const lines = [header.join(",")];
+  function line(label, arr, sumType){
+    const total = sumType==="last" ? arr[arr.length-1] : rpt.sum(arr);
+    lines.push([label, ...arr.map(v=>rpt.round2(v)), rpt.round2(total)].join(","));
+  }
+  rpt.leaveCodes.forEach(c=> line(STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c]));
+  line("請假總計", rpt.leaveTotalRow);
+  line("補休A（加班轉補休）", rpt.otComp);
+  line("給薪B（加班領薪）", rpt.otPaid);
+  line("業務加班時數C=A+B", rpt.businessOT);
+  line("補休(上月結餘)A", rpt.compOpening);
+  line("補休(本月新增)B", rpt.compEarned);
+  line("補休假使用C", rpt.compUsed);
+  line("本月結餘D=A+B-C", rpt.compClosing, "last");
+  line("年假使用時數(當月)", rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0));
+  line("年假使用累計(年初至今)", rpt.vCumulative, "last");
+  const csv = lines.join("\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `年度統計報表_${rpt.year}.csv`; a.click();
+  URL.revokeObjectURL(url);
+});
 /* ---------------- init ---------------- */
 async function init(){
   // if a Firebase config was saved on this device before, reconnect automatically
@@ -1271,10 +1495,19 @@ document.getElementById("connectFirebaseBtn").addEventListener("click", async ()
   const ok = await tryInitFirebase(cfg);
   if(ok){
     localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg));
-    setStatus("syncStatus","連線成功！開始從雲端讀取資料...","ok");
-    await reloadAllFromStorage();
     updateStorageNote();
-    setStatus("syncStatus","雲端同步已啟用，資料已從雲端載入。","ok");
+    let cloudEmployeesDoc;
+    try{ cloudEmployeesDoc = await FB.db.collection(FB_COLLECTION).doc("employees").get(); }
+    catch(e){ cloudEmployeesDoc = null; }
+    if(cloudEmployeesDoc && cloudEmployeesDoc.exists){
+      setStatus("syncStatus","連線成功，雲端已有資料，正在下載到這台裝置...","ok");
+      await reloadAllFromStorage();
+      setStatus("syncStatus","雲端同步已啟用，已從雲端載入資料。","ok");
+    }else{
+      setStatus("syncStatus","連線成功，雲端目前是空的，正在把這台裝置目前的資料上傳到雲端...","ok");
+      await pushAllToStorage();
+      setStatus("syncStatus","雲端同步已啟用，已把這台裝置的資料上傳為雲端的初始資料。其他裝置貼同一組設定後，請按「⬇ 從雲端下載最新資料」。","ok");
+    }
   }else{
     setStatus("syncStatus","連線失敗，請確認設定物件是否正確、Firestore 是否已建立、匿名登入是否已啟用。","err");
   }
@@ -1286,11 +1519,27 @@ document.getElementById("disconnectFirebaseBtn").addEventListener("click", async
   setStatus("syncStatus","已停用雲端同步，改回使用本機儲存。","ok");
 });
 document.getElementById("pullCloudBtn").addEventListener("click", async ()=>{
-  if(!FB.ready){ setStatus("syncStatus","目前尚未啟用雲端同步。","err"); return; }
-  setStatus("syncStatus","從雲端重新整理中...","");
+  if(!FB.ready){ setStatus("syncStatus","目前尚未啟用雲端同步，請先貼設定並連線。","err"); return; }
+  setStatus("syncStatus","從雲端下載中...","");
   await reloadAllFromStorage();
-  setStatus("syncStatus","已從雲端取得最新資料。","ok");
+  setStatus("syncStatus","已從雲端取得最新資料，這台裝置畫面上原本的資料已被覆蓋。","ok");
 });
+document.getElementById("pushCloudBtn").addEventListener("click", async ()=>{
+  if(!FB.ready){ setStatus("syncStatus","目前尚未啟用雲端同步，請先貼設定並連線。","err"); return; }
+  setStatus("syncStatus","上傳中...","");
+  await pushAllToStorage();
+  setStatus("syncStatus","已把這台裝置目前的員工名冊、班表、假別設定與調整全部上傳到雲端（雲端原本的資料已被覆蓋）。","ok");
+});
+async function pushAllToStorage(){
+  await saveJSON("employees", STATE.employees);
+  await saveJSON("leaveConfig", STATE.config);
+  for(const [monthKey, data] of Object.entries(STATE.schedules)){
+    await saveJSON("schedule:"+monthKey, data);
+  }
+  for(const [monthKey, data] of Object.entries(STATE.adjustments)){
+    await saveJSON("adjust:"+monthKey, data);
+  }
+}
 async function reloadAllFromStorage(){
   STATE.employees = await loadJSON("employees", STATE.employees);
   STATE.config = await loadJSON("leaveConfig", STATE.config);
