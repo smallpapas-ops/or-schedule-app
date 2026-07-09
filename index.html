@@ -342,6 +342,22 @@
       </div>
       <p class="status-line" id="histImportStatus"></p>
     </div>
+
+    <div class="card">
+      <h2>匯入手術開台數統計（業務量）</h2>
+      <p class="hint">
+        上傳貴單位的「手術開台數統計」報表（.xlsx/.xls，例如已經彙整好、<b>不含病患個人資料</b>的「總表」類工作表），系統會自動掃描裡面每個「◯◯年」區塊 + 1~12月列，把日班/小夜/夜班/合計/工作日/平均台數填進對應年度。<br>
+        <b style="color:var(--brick);">請務必只上傳已彙整的統計表，不要上傳含病歷號、身分證號、病患姓名等個資的原始清單</b>——這類清單本工具不會處理、也不應該存到雲端。
+      </p>
+      <div class="row">
+        <div class="field">
+          <label>開台數統計檔案</label>
+          <input type="file" id="caseVolumeInput" accept=".xls,.xlsx">
+        </div>
+        <button class="btn" id="importCaseVolumeBtn">開始匯入</button>
+      </div>
+      <p class="status-line" id="caseVolumeStatus"></p>
+    </div>
   </section>
 
   <!-- ============ TAB: SETTINGS ============ -->
@@ -1413,6 +1429,14 @@ async function renderAnnualTab(){
   tbody += dataRow("vCumulative", "年假使用累計(年初至今)", rpt.vCumulative, {sumType:"last"});
   tbody += dataRow("vBalance", "結餘年休（全單位，時）", rpt.months.map(()=>0), {sumType:"last"});
 
+  tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">手術業務量（台數；非班表資料，需匯入或手動填寫）</td></tr>`;
+  tbody += dataRow("caseDay", "日班開台數", rpt.months.map(()=>0));
+  tbody += dataRow("caseEvening", "小夜開台數", rpt.months.map(()=>0));
+  tbody += dataRow("caseNight", "夜班開台數", rpt.months.map(()=>0));
+  tbody += dataRow("caseTotal", "合計台數", rpt.months.map(()=>0), {bold:true});
+  tbody += dataRow("workDays", "工作日數", rpt.months.map(()=>0));
+  tbody += dataRow("avgPerDay", "平均台/日", rpt.months.map(()=>0));
+
   tbody += "</tbody>";
   table.innerHTML = thead+tbody;
 
@@ -1441,7 +1465,9 @@ document.getElementById("annualTable").addEventListener("change", async (e)=>{
     leaveTotal: rpt.leaveTotalRow, otComp: rpt.otComp, otPaid: rpt.otPaid, businessOT: rpt.businessOT,
     compOpening: rpt.compOpening, compEarned: rpt.compEarned, compUsed: rpt.compUsed, compClosing: rpt.compClosing,
     vMonthly: rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0), vCumulative: rpt.vCumulative,
-    vBalance: rpt.months.map(()=>0)
+    vBalance: rpt.months.map(()=>0),
+    caseDay: rpt.months.map(()=>0), caseEvening: rpt.months.map(()=>0), caseNight: rpt.months.map(()=>0),
+    caseTotal: rpt.months.map(()=>0), workDays: rpt.months.map(()=>0), avgPerDay: rpt.months.map(()=>0)
   };
   let defaults = defaultsMap[rowKey];
   if(defaults===undefined && rowKey.startsWith("leave_")){
@@ -1545,6 +1571,69 @@ document.getElementById("importHistBtn").addEventListener("click", async ()=>{
   }catch(e){
     console.error(e);
     setStatus("histImportStatus","匯入失敗："+e.message,"err");
+  }
+});
+
+/* ---------------- import surgery case-volume summary (.xls/.xlsx) ---------------- */
+const CASE_VOLUME_ROWKEYS = ["caseDay","caseEvening","caseNight","caseTotal","workDays","avgPerDay"]; // column B..G
+document.getElementById("importCaseVolumeBtn").addEventListener("click", async ()=>{
+  const fileInput = document.getElementById("caseVolumeInput");
+  if(!fileInput.files[0]){ setStatus("caseVolumeStatus","請先選擇檔案。","err"); return; }
+  setStatus("caseVolumeStatus","讀取檔案中...","");
+  try{
+    const buf = await fileInput.files[0].arrayBuffer();
+    const wb = XLSX.read(buf, {type:"array"});
+    const importedYears = [];
+    for(const sheetName of wb.SheetNames){
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, raw:true, defval:""});
+      let r = 0;
+      while(r < rows.length){
+        const cellA = String(rows[r][0]!==undefined?rows[r][0]:"").trim();
+        const yearMatch = cellA.match(/^(\d+)\s*年$/);
+        if(yearMatch){
+          const rocYear = Number(yearMatch[1]);
+          const westernYear = rocYear + 1911;
+          const manual = await loadAnnualManual(westernYear);
+          let monthsMatched = 0;
+          r++; // skip the header row ((含8A)|日班|小夜|夜班|合計|工作日|平均台/日)
+          r++;
+          while(r < rows.length){
+            const mLabel = String(rows[r][0]!==undefined?rows[r][0]:"").trim();
+            const mMatch = mLabel.match(/^(\d{1,2})\s*月$/);
+            if(!mMatch) break;
+            const monthIdx = Number(mMatch[1]) - 1;
+            if(monthIdx>=0 && monthIdx<12){
+              CASE_VOLUME_ROWKEYS.forEach((rowKey, ci)=>{
+                const raw = rows[r][ci+1];
+                if(raw===""||raw===undefined||raw===null) return;
+                const n = Number(raw);
+                if(isNaN(n)) return;
+                manual[rowKey] = manual[rowKey] || {};
+                manual[rowKey][monthIdx] = Math.round(n*100)/100;
+              });
+              monthsMatched++;
+            }
+            r++;
+          }
+          if(monthsMatched>0){
+            ANNUAL_MANUAL_CACHE[westernYear] = manual;
+            await saveAnnualManual(westernYear);
+            importedYears.push(`${westernYear}(民國${rocYear}，${monthsMatched}個月)`);
+          }
+          continue;
+        }
+        r++;
+      }
+    }
+    if(importedYears.length===0){
+      setStatus("caseVolumeStatus","沒有掃描到「◯◯年」+「1~12月」這種區塊，請確認上傳的是彙整好的統計總表（而不是逐筆病患清單）。","err");
+      return;
+    }
+    setStatus("caseVolumeStatus", `匯入完成：${importedYears.join("、")}。請切換「年度」查看「手術業務量」區塊。`, "ok");
+    renderAnnualTab();
+  }catch(e){
+    console.error(e);
+    setStatus("caseVolumeStatus","匯入失敗："+e.message,"err");
   }
 });
 /* ---------------- init ---------------- */
