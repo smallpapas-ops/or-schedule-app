@@ -437,6 +437,10 @@
   <div class="card" style="max-width:820px; width:100%; max-height:82vh; overflow:auto;">
     <h2 id="adjustModalTitle">手動調整</h2>
     <p class="hint">輸入該員工本月每天的<b>加班時數</b>、<b>各假別使用時數</b>（特休、喪假、產檢假…等，依「代碼設定」目前設定的假別列出）與<b>補休使用時數（小時）</b>，留空視為 0。適合處理公假、喪假、生理假、婚假、事假這類容易臨時異動的班別——班表代碼還沒改過來時，先在這裡用小時數調整。這些會直接反映在上面「假別使用（天）」與「異動後時數」；其中<b>特休(V)</b>使用時數同時會反映在「特休總覽」的剩餘天數，補休使用時數只影響工時、不影響特休剩餘。</p>
+    <div class="field" style="max-width:320px; margin-bottom:10px;">
+      <label>選擇項目</label>
+      <select id="adjustRowSelect" style="width:100%;"></select>
+    </div>
     <div class="table-wrap"><table id="adjustGridTable"></table></div>
     <div class="row" style="margin-top:14px;">
       <button class="btn" id="saveAdjustBtn">儲存調整</button>
@@ -1155,6 +1159,19 @@ document.getElementById("reportTable").addEventListener("click",(e)=>{
 
 /* ---------------- manual adjustment modal (overtime / any leave type, in hours) ---------------- */
 let ADJUST_CTX = null;
+let WORKING_ADJUST = {}; // rowKey -> {day: value}, buffered so switching rows in the dropdown never loses unsaved edits
+let ADJUST_ROW_DEFS = []; // [{key,label}]
+
+function adjustRowKeyToLabel(){
+  const leaveCodes = Object.keys(STATE.config.leaveCodes);
+  ADJUST_ROW_DEFS = [
+    {key:"otComp", label:"加班-轉補休(補休A)"},
+    {key:"otPaid", label:"加班-領薪(給薪B)"},
+    ...leaveCodes.map(code=>({key:"leave_"+code, label:STATE.config.leaveCodes[code]+"使用"})),
+    {key:"comp", label:"補休使用"}
+  ];
+}
+
 function openAdjustModal(empId){
   const monthKey = document.getElementById("reportMonthSelect").value;
   const sched = STATE.schedules[monthKey];
@@ -1164,36 +1181,59 @@ function openAdjustModal(empId){
   ADJUST_CTX = {monthKey, empId, dayCount: sched.dayCount};
   document.getElementById("adjustModalTitle").textContent = `手動調整－ ${emp?emp.name:empId}（${monthKey}）`;
   const existing = (STATE.adjustments[monthKey]||{})[empId] || {};
-  let thead = "<thead><tr><th class=\"name-cell\">項目</th>";
-  for(let d=1; d<=sched.dayCount; d++) thead += `<th>${d}</th>`;
-  thead += "</tr></thead>";
 
-  function buildRow(label, attr, extraCode){
-    let row = `<tr><td class="name-cell">${label}(小時)</td>`;
-    for(let d=1; d<=sched.dayCount; d++){
-      const dv = existing[d] || {};
-      let val = "";
-      if(attr==="otComp"){
-        val = dv.otComp!==undefined ? dv.otComp : (dv.ot!==undefined ? dv.ot : "");
-      } else if(attr==="otPaid" || attr==="comp"){
-        val = dv[attr]!==undefined ? dv[attr] : "";
-      } else { const lv = dayLeaveHours(dv); val = lv[extraCode]!==undefined ? lv[extraCode] : ""; }
-      const dataAttrs = attr==="leave" ? `data-adj="leave" data-code="${extraCode}"` : `data-adj="${attr}"`;
-      row += `<td><input type="number" step="0.5" class="cell-code" style="width:44px;" ${dataAttrs} data-day="${d}" value="${val}"></td>`;
-    }
-    return row + "</tr>";
-  }
-
-  let rowsHtml = buildRow("加班-轉補休(補休A)","otComp");
-  rowsHtml += buildRow("加班-領薪(給薪B)","otPaid");
-  leaveCodes.forEach(code=>{
-    rowsHtml += buildRow(STATE.config.leaveCodes[code]+"使用", "leave", code);
+  // convert day-oriented stored data into row-oriented working buffer
+  WORKING_ADJUST = {otComp:{}, otPaid:{}, comp:{}};
+  leaveCodes.forEach(code=> WORKING_ADJUST["leave_"+code] = {});
+  Object.entries(existing).forEach(([day, dv])=>{
+    if(dv.otComp!==undefined) WORKING_ADJUST.otComp[day] = dv.otComp;
+    else if(dv.ot!==undefined) WORKING_ADJUST.otComp[day] = dv.ot; // legacy fallback
+    if(dv.otPaid!==undefined) WORKING_ADJUST.otPaid[day] = dv.otPaid;
+    if(dv.comp!==undefined) WORKING_ADJUST.comp[day] = dv.comp;
+    const lv = dayLeaveHours(dv);
+    Object.entries(lv).forEach(([code,hrs])=>{
+      if(!WORKING_ADJUST["leave_"+code]) WORKING_ADJUST["leave_"+code] = {};
+      WORKING_ADJUST["leave_"+code][day] = hrs;
+    });
   });
-  rowsHtml += buildRow("補休使用","comp");
 
-  document.getElementById("adjustGridTable").innerHTML = thead + "<tbody>"+rowsHtml+"</tbody>";
+  adjustRowKeyToLabel();
+  const sel = document.getElementById("adjustRowSelect");
+  sel.innerHTML = ADJUST_ROW_DEFS.map(r=>`<option value="${r.key}">${r.label}</option>`).join("");
+  sel.value = ADJUST_ROW_DEFS[0].key;
+
+  renderAdjustRow(sel.value);
   document.getElementById("adjustModalOverlay").style.display = "flex";
 }
+
+function renderAdjustRow(rowKey){
+  const dayCount = ADJUST_CTX.dayCount;
+  const data = WORKING_ADJUST[rowKey] || {};
+  let thead = "<thead><tr><th class=\"name-cell\">日期</th>";
+  for(let d=1; d<=dayCount; d++) thead += `<th>${d}</th>`;
+  thead += "</tr></thead>";
+  let row = `<tr><td class="name-cell">小時</td>`;
+  for(let d=1; d<=dayCount; d++){
+    const val = data[d]!==undefined ? data[d] : "";
+    row += `<td><input type="number" step="0.5" class="cell-code" style="width:50px;" data-adj-day="${d}" value="${val}"></td>`;
+  }
+  row += "</tr>";
+  document.getElementById("adjustGridTable").innerHTML = thead + "<tbody>"+row+"</tbody>";
+}
+
+document.getElementById("adjustRowSelect").addEventListener("change", (e)=>{
+  renderAdjustRow(e.target.value);
+});
+document.getElementById("adjustGridTable").addEventListener("input", (e)=>{
+  const day = e.target.dataset.adjDay;
+  if(day===undefined) return;
+  const rowKey = document.getElementById("adjustRowSelect").value;
+  const val = e.target.value.trim();
+  WORKING_ADJUST[rowKey] = WORKING_ADJUST[rowKey] || {};
+  if(val==="") delete WORKING_ADJUST[rowKey][day];
+  else WORKING_ADJUST[rowKey][day] = Number(val);
+});
+
 document.getElementById("closeAdjustBtn").addEventListener("click", ()=>{
   document.getElementById("adjustModalOverlay").style.display = "none";
 });
@@ -1203,26 +1243,21 @@ document.getElementById("adjustModalOverlay").addEventListener("click",(e)=>{
 document.getElementById("saveAdjustBtn").addEventListener("click", async ()=>{
   if(!ADJUST_CTX) return;
   const {monthKey, empId, dayCount} = ADJUST_CTX;
-  const leaveCodes = Object.keys(STATE.config.leaveCodes);
   const dayData = {};
   for(let d=1; d<=dayCount; d++){
-    const otCompEl = document.querySelector(`#adjustGridTable input[data-adj="otComp"][data-day="${d}"]`);
-    const otPaidEl = document.querySelector(`#adjustGridTable input[data-adj="otPaid"][data-day="${d}"]`);
-    const compEl = document.querySelector(`#adjustGridTable input[data-adj="comp"][data-day="${d}"]`);
-    const otCompVal = otCompEl ? otCompEl.value.trim() : "";
-    const otPaidVal = otPaidEl ? otPaidEl.value.trim() : "";
-    const compVal = compEl ? compEl.value.trim() : "";
+    const otCompVal = WORKING_ADJUST.otComp ? WORKING_ADJUST.otComp[d] : undefined;
+    const otPaidVal = WORKING_ADJUST.otPaid ? WORKING_ADJUST.otPaid[d] : undefined;
+    const compVal = WORKING_ADJUST.comp ? WORKING_ADJUST.comp[d] : undefined;
     const leaveObj = {};
-    leaveCodes.forEach(code=>{
-      const el = document.querySelector(`#adjustGridTable input[data-adj="leave"][data-code="${code}"][data-day="${d}"]`);
-      const val = el ? el.value.trim() : "";
-      if(val!=="") leaveObj[code] = Number(val);
+    Object.keys(STATE.config.leaveCodes).forEach(code=>{
+      const bucket = WORKING_ADJUST["leave_"+code];
+      if(bucket && bucket[d]!==undefined) leaveObj[code] = bucket[d];
     });
-    if(otCompVal!=="" || otPaidVal!=="" || compVal!=="" || Object.keys(leaveObj).length){
+    if(otCompVal!==undefined || otPaidVal!==undefined || compVal!==undefined || Object.keys(leaveObj).length){
       dayData[d] = {};
-      if(otCompVal!=="") dayData[d].otComp = Number(otCompVal);
-      if(otPaidVal!=="") dayData[d].otPaid = Number(otPaidVal);
-      if(compVal!=="") dayData[d].comp = Number(compVal);
+      if(otCompVal!==undefined) dayData[d].otComp = otCompVal;
+      if(otPaidVal!==undefined) dayData[d].otPaid = otPaidVal;
+      if(compVal!==undefined) dayData[d].comp = compVal;
       if(Object.keys(leaveObj).length) dayData[d].leave = leaveObj;
     }
   }
