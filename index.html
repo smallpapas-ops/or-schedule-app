@@ -401,11 +401,11 @@
     <div class="card">
       <h2>雲端同步（手機／電腦共用同一份資料）</h2>
       <p class="hint">
-        目前資料存在「這台裝置的瀏覽器」裡，換裝置不會互通。設定下面的免費 Firebase 專案後，員工名冊、班表、假別調整都會存到雲端，手機和電腦用同一個網址打開，就會看到同一份資料。<br>
-        設定步驟請看對話中我給您的說明；這裡只要把 Firebase 專案的「設定物件」貼進來即可。同一組設定，每台要同步的裝置都要各貼一次（只需貼一次，之後會記住）。
+        <b>這個網址已經內建雲端連線設定</b>，任何裝置打開都會自動連到同一份資料，不需要手動貼設定、不需要按任何按鈕。手機、電腦用同一個網址打開，看到的就是同一份員工名冊、班表與假別調整。<br>
+        下面的欄位只有在需要<b>切換到不同的雲端專案</b>時才需要用到（例如故障排除、或您想改連別的 Firebase 專案），一般情況下不用理它。
       </p>
       <div class="field" style="max-width:640px;">
-        <label>貼上 Firebase 設定物件（firebaseConfig）</label>
+        <label>目前使用的 Firebase 設定物件（進階用，一般不用修改）</label>
         <textarea id="firebaseConfigInput" rows="7" style="font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--line-strong);border-radius:6px;" placeholder='{
   "apiKey": "...",
   "authDomain": "xxx.firebaseapp.com",
@@ -463,6 +463,18 @@ const HAS_CLAUDE_STORAGE = (typeof window.storage !== "undefined") && window.sto
   && typeof window.storage.get === "function";
 const LS_PREFIX = "orSchedApp:";
 const FB_CONFIG_KEY = "orSchedApp_firebaseConfig"; // raw localStorage key (device bootstrap, not app data)
+// Baked into the app so every device that opens this page connects to the same
+// shared database automatically, with no manual paste step required. This is safe
+// to embed publicly — Firebase web config is not a secret, access is controlled by
+// the Firestore security rules (which require anonymous auth) set up for this project.
+const DEFAULT_FIREBASE_CONFIG = {
+  "apiKey": "AIzaSyBuMAdRGBobH1bQIEpMEnohL5i5xqj8WEQ",
+  "authDomain": "or-schedule-app.firebaseapp.com",
+  "projectId": "or-schedule-app",
+  "storageBucket": "or-schedule-app.firebasestorage.app",
+  "messagingSenderId": "345376665822",
+  "appId": "1:345376665822:web:db4b428df7d720763dd24f"
+};
 const FB_COLLECTION = "orSchedApp_v1";
 
 let FB = { app:null, db:null, ready:false };
@@ -1304,6 +1316,15 @@ function renderLeaveTab(){
 }
 
 /* ---------------- annual unit report (mirrors OR unit's 出缺勤暨加班補休統計報表) ---------------- */
+function countWeekdays(westernYear, month1to12){
+  const total = new Date(westernYear, month1to12, 0).getDate();
+  let n = 0;
+  for(let d=1; d<=total; d++){
+    const dow = new Date(westernYear, month1to12-1, d).getDay(); // 0=Sun,6=Sat
+    if(dow!==0 && dow!==6) n++;
+  }
+  return n;
+}
 function computeAnnualReport(year){
   const leaveCodes = Object.keys(STATE.config.leaveCodes);
   const months = [1,2,3,4,5,6,7,8,9,10,11,12];
@@ -1434,8 +1455,17 @@ async function renderAnnualTab(){
   tbody += dataRow("caseEvening", "小夜開台數", rpt.months.map(()=>0));
   tbody += dataRow("caseNight", "夜班開台數", rpt.months.map(()=>0));
   tbody += dataRow("caseTotal", "合計台數", rpt.months.map(()=>0), {bold:true});
-  tbody += dataRow("workDays", "工作日數", rpt.months.map(()=>0));
-  tbody += dataRow("avgPerDay", "平均台/日", rpt.months.map(()=>0));
+  tbody += dataRow("workDays", "工作日數（平日，不含六日；國定假日請手動扣）", rpt.months.map((m,idx)=>countWeekdays(westernYear, m)));
+
+  // averages = each row's effective (possibly overridden) count ÷ effective workDays
+  const findVals = key => (rowDefs.find(r=>r.key===key)||{values:rpt.months.map(()=>0)}).values;
+  const wdVals = findVals("workDays");
+  const perShiftAvg = (countVals)=> countVals.map((v,idx)=> wdVals[idx] ? Math.round((v/wdVals[idx])*100)/100 : 0);
+  tbody += dataRow("avgPerDay", "平均台/日", perShiftAvg(findVals("caseTotal")), {bold:true});
+  tbody += dataRow("avgCaseDay", "平均白班開台數", perShiftAvg(findVals("caseDay")));
+  tbody += dataRow("avgCaseEvening", "平均小夜開台數", perShiftAvg(findVals("caseEvening")));
+  tbody += dataRow("avgCaseNight", "平均夜班開台數", perShiftAvg(findVals("caseNight")));
+
 
   tbody += "</tbody>";
   table.innerHTML = thead+tbody;
@@ -1461,13 +1491,15 @@ document.getElementById("annualTable").addEventListener("change", async (e)=>{
   ANNUAL_MANUAL_CACHE[year][rowKey] = ANNUAL_MANUAL_CACHE[year][rowKey] || {};
   const rpt = ANNUAL_LAST.rpt;
   // figure out this row's computed default so clearing the field reverts to it
+  const findRowVals = key => (ANNUAL_LAST.rowDefs.find(rd=>rd.key===key)||{values:rpt.months.map(()=>0)}).values;
   const defaultsMap = {
     leaveTotal: rpt.leaveTotalRow, otComp: rpt.otComp, otPaid: rpt.otPaid, businessOT: rpt.businessOT,
     compOpening: rpt.compOpening, compEarned: rpt.compEarned, compUsed: rpt.compUsed, compClosing: rpt.compClosing,
     vMonthly: rpt.leaveHoursByCode["V"]||rpt.months.map(()=>0), vCumulative: rpt.vCumulative,
     vBalance: rpt.months.map(()=>0),
     caseDay: rpt.months.map(()=>0), caseEvening: rpt.months.map(()=>0), caseNight: rpt.months.map(()=>0),
-    caseTotal: rpt.months.map(()=>0), workDays: rpt.months.map(()=>0), avgPerDay: rpt.months.map(()=>0)
+    caseTotal: rpt.months.map(()=>0), workDays: rpt.months.map((m,idx)=>countWeekdays(year, m)), avgPerDay: findRowVals("avgPerDay"),
+    avgCaseDay: findRowVals("avgCaseDay"), avgCaseEvening: findRowVals("avgCaseEvening"), avgCaseNight: findRowVals("avgCaseNight")
   };
   let defaults = defaultsMap[rowKey];
   if(defaults===undefined && rowKey.startsWith("leave_")){
@@ -1636,17 +1668,18 @@ document.getElementById("importCaseVolumeBtn").addEventListener("click", async (
     setStatus("caseVolumeStatus","匯入失敗："+e.message,"err");
   }
 });
+
 /* ---------------- init ---------------- */
 async function init(){
-  // if a Firebase config was saved on this device before, reconnect automatically
+  // Connect to Firebase automatically — use a device-specific override if one was
+  // saved before (e.g. someone manually reconnected to a different project), else
+  // fall back to the config baked into this app so no manual paste is needed.
   try{
     const savedFbConfig = localStorage.getItem(FB_CONFIG_KEY);
-    if(savedFbConfig){
-      const cfg = JSON.parse(savedFbConfig);
-      await tryInitFirebase(cfg);
-      document.getElementById("firebaseConfigInput").value = JSON.stringify(cfg, null, 2);
-    }
-  }catch(e){ console.error("firebase auto-reconnect failed", e); }
+    const cfg = savedFbConfig ? JSON.parse(savedFbConfig) : DEFAULT_FIREBASE_CONFIG;
+    await tryInitFirebase(cfg);
+    document.getElementById("firebaseConfigInput").value = JSON.stringify(cfg, null, 2);
+  }catch(e){ console.error("firebase auto-connect failed", e); }
 
   STATE.employees = await loadJSON("employees", null);
   if(!STATE.employees){
