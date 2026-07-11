@@ -427,6 +427,50 @@
       </div>
       <p class="status-line" id="capStatus"></p>
     </div>
+
+    <div class="card">
+      <h2>手術室人力計算</h2>
+      <p class="hint">單純計算手術室每個班別、崗位需要多少人力，跟上面的休假天數試算是各自獨立的欄位，可以單獨拿來對照目前人力夠不夠用。</p>
+      <div class="row" style="align-items:flex-end;">
+        <div class="field">
+          <label>白班房間數</label>
+          <input type="number" id="orCalcRooms" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>每房人力</label>
+          <input type="number" id="orCalcPerRoom" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>12-8班別人力</label>
+          <input type="number" id="orCalc128" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>小夜班人力</label>
+          <input type="number" id="orCalcEvening" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>大夜班人力</label>
+          <input type="number" id="orCalcNight" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>控台人力</label>
+          <input type="number" id="orCalcConsole" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>護理站人力</label>
+          <input type="number" id="orCalcNursing" style="width:80px;">
+        </div>
+        <div class="field">
+          <label>休假係數</label>
+          <input type="number" step="0.01" id="orCalcLeaveFactor" style="width:80px;">
+        </div>
+      </div>
+      <div class="summary-grid" style="margin-top:16px;">
+        <div class="stat"><div class="k">基本需求人力</div><div class="v" id="orCalcTotalResult">0</div></div>
+        <div class="stat"><div class="k">含休假係數後需求人力</div><div class="v" id="orCalcWithFactorResult">0</div></div>
+      </div>
+      <p class="status-line" id="orCalcStatus"></p>
+    </div>
   </section>
 
   <!-- ============ TAB: CLOUD SYNC ============ -->
@@ -668,7 +712,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn=>{
     if(btn.dataset.tab==="report") renderReportTab();
     if(btn.dataset.tab==="leave") renderLeaveTab();
     if(btn.dataset.tab==="annual") renderAnnualTab();
-    if(btn.dataset.tab==="staffcap") renderCapTab();
+    if(btn.dataset.tab==="staffcap"){ renderCapTab(); renderOrCalcTab(); }
   });
 });
 
@@ -1842,6 +1886,43 @@ document.getElementById("capTbody").addEventListener("change", async (e)=>{
   CAP_CONFIG[path][key] = Number(e.target.value)||0;
   await saveCapConfig();
   renderCapTab();
+});
+
+/* ---------------- standalone OR staffing calculator ---------------- */
+const DEFAULT_OR_CALC_CONFIG = {rooms:12, perRoom:2, shift128:6, shiftE:4, shiftN:2, console:1, nursingStation:1, leaveFactor:1.2};
+let OR_CALC_CONFIG = null;
+const OR_CALC_FIELD_MAP = {
+  orCalcRooms:"rooms", orCalcPerRoom:"perRoom", orCalc128:"shift128",
+  orCalcEvening:"shiftE", orCalcNight:"shiftN", orCalcConsole:"console", orCalcNursing:"nursingStation",
+  orCalcLeaveFactor:"leaveFactor"
+};
+async function loadOrCalcConfig(){
+  if(OR_CALC_CONFIG) return OR_CALC_CONFIG;
+  OR_CALC_CONFIG = await loadJSON("orStaffCalcConfig", JSON.parse(JSON.stringify(DEFAULT_OR_CALC_CONFIG)));
+  if(OR_CALC_CONFIG.leaveFactor===undefined) OR_CALC_CONFIG.leaveFactor = DEFAULT_OR_CALC_CONFIG.leaveFactor; // migrate older saved configs
+  return OR_CALC_CONFIG;
+}
+async function saveOrCalcConfig(){ await saveJSON("orStaffCalcConfig", OR_CALC_CONFIG); }
+async function renderOrCalcTab(){
+  await loadOrCalcConfig();
+  Object.entries(OR_CALC_FIELD_MAP).forEach(([elId,key])=>{
+    document.getElementById(elId).value = OR_CALC_CONFIG[key];
+  });
+  const total = (OR_CALC_CONFIG.rooms*OR_CALC_CONFIG.perRoom) + OR_CALC_CONFIG.shift128
+    + OR_CALC_CONFIG.shiftE + OR_CALC_CONFIG.shiftN + OR_CALC_CONFIG.console + OR_CALC_CONFIG.nursingStation;
+  const withFactor = Math.round(total * OR_CALC_CONFIG.leaveFactor * 100)/100;
+  document.getElementById("orCalcTotalResult").textContent = total;
+  document.getElementById("orCalcWithFactorResult").textContent = withFactor;
+  setStatus("orCalcStatus", `基本需求人力 = ${OR_CALC_CONFIG.rooms}×${OR_CALC_CONFIG.perRoom} + ${OR_CALC_CONFIG.shift128} + ${OR_CALC_CONFIG.shiftE} + ${OR_CALC_CONFIG.shiftN} + ${OR_CALC_CONFIG.console} + ${OR_CALC_CONFIG.nursingStation} = ${total} 人；含休假係數 ${total} × ${OR_CALC_CONFIG.leaveFactor} = ${withFactor} 人。`, "");
+}
+Object.keys(OR_CALC_FIELD_MAP).forEach(elId=>{
+  document.getElementById(elId).addEventListener("change", async ()=>{
+    await loadOrCalcConfig();
+    const key = OR_CALC_FIELD_MAP[elId];
+    OR_CALC_CONFIG[key] = Number(document.getElementById(elId).value)||0;
+    await saveOrCalcConfig();
+    renderOrCalcTab();
+  });
 });
 
 async function init(){
