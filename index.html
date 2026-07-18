@@ -171,6 +171,7 @@
     <button data-tab="employees" class="active">員工資料</button>
     <button data-tab="import">匯入班表</button>
     <button data-tab="report">本月報表</button>
+    <button data-tab="editschedule">查閱及編輯班表</button>
     <button data-tab="leave">特休總覽</button>
     <button data-tab="annual">年度統計報表</button>
     <button data-tab="settings">代碼設定</button>
@@ -300,6 +301,29 @@
         <table id="reportTable"></table>
       </div>
       <p class="status-line" id="reportStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ TAB: VIEW/EDIT SCHEDULE ============ -->
+  <section class="panel" id="panel-editschedule">
+    <div class="card">
+      <h2>查閱及編輯班表</h2>
+      <p class="hint">選一個已經儲存過的月份，直接檢視、修改班表上任何一格的代碼。跟匯入時的核對表格一樣，<span class="pill work">深綠＝上班班別</span> <span class="pill leave">紅＝特殊假別</span> <span class="pill" style="border-color:#B8902E;color:#B8902E;">黃底＝未歸類代碼</span>。改完記得按「儲存修改」。</p>
+      <div class="row">
+        <div class="field">
+          <label>選擇月份</label>
+          <select id="viewEditMonthSelect"></select>
+        </div>
+        <div class="field">
+          <label>搜尋員編或姓名</label>
+          <input type="text" id="viewEditSearchInput" placeholder="輸入員編或姓名..." style="width:160px;">
+        </div>
+        <button class="btn" id="saveViewEditBtn" style="align-self:flex-end;">儲存修改</button>
+      </div>
+      <div class="table-wrap" style="margin-top:14px; max-height:600px; overflow-y:auto;">
+        <table id="viewEditGridTable"></table>
+      </div>
+      <p class="status-line" id="viewEditStatus"></p>
     </div>
   </section>
 
@@ -530,6 +554,17 @@
   </div>
 </div>
 
+<div id="drilldownOverlay" style="display:none; position:fixed; inset:0; background:rgba(22,48,44,0.45); z-index:50; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="max-width:640px; width:100%; max-height:82vh; overflow:auto;">
+    <h2 id="drilldownTitle">查看是誰</h2>
+    <p class="hint" id="drilldownHint"></p>
+    <div id="drilldownBody"></div>
+    <div class="row" style="margin-top:14px;">
+      <button class="btn ghost" id="closeDrilldownBtn">關閉</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -714,6 +749,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn=>{
     btn.classList.add("active");
     document.getElementById("panel-"+btn.dataset.tab).classList.add("active");
     if(btn.dataset.tab==="report") renderReportTab();
+    if(btn.dataset.tab==="editschedule"){ populateViewEditMonths(); loadViewEditGrid(); renderViewEditGrid(); }
     if(btn.dataset.tab==="leave") renderLeaveTab();
     if(btn.dataset.tab==="annual") renderAnnualTab();
     if(btn.dataset.tab==="staffcap"){ renderCapTab(); renderOrCalcTab(); }
@@ -1115,6 +1151,80 @@ function populateReportMonths(){
   const months = Object.keys(STATE.schedules).sort().reverse();
   sel.innerHTML = months.map(m=>`<option value="${m}">${m}</option>`).join("");
 }
+
+/* ---------------- view / edit an already-saved month's schedule ---------------- */
+let VIEW_EDIT_GRID = null; // {monthKey, dayCount, byEmployee} — working copy, not yet saved
+function populateViewEditMonths(){
+  const sel = document.getElementById("viewEditMonthSelect");
+  const prev = sel.value;
+  const months = Object.keys(STATE.schedules).sort().reverse();
+  sel.innerHTML = months.map(m=>`<option value="${m}">${m}</option>`).join("");
+  if(months.includes(prev)) sel.value = prev;
+}
+function loadViewEditGrid(){
+  const monthKey = document.getElementById("viewEditMonthSelect").value;
+  if(!monthKey){ VIEW_EDIT_GRID = null; return; }
+  const sched = STATE.schedules[monthKey];
+  if(!sched){ VIEW_EDIT_GRID = null; return; }
+  VIEW_EDIT_GRID = {monthKey, dayCount: sched.dayCount, byEmployee: JSON.parse(JSON.stringify(sched.byEmployee||{}))};
+}
+function renderViewEditGrid(){
+  const table = document.getElementById("viewEditGridTable");
+  if(!VIEW_EDIT_GRID){
+    table.innerHTML = "";
+    setStatus("viewEditStatus", Object.keys(STATE.schedules).length ? "請選擇月份。" : "目前還沒有任何已儲存的月份班表，請先到「匯入班表」建立。", "");
+    return;
+  }
+  const {dayCount, byEmployee} = VIEW_EDIT_GRID;
+  const query = document.getElementById("viewEditSearchInput").value.trim().toLowerCase();
+  const employees = query
+    ? STATE.employees.filter(e=> e.id.toLowerCase().includes(query) || e.name.toLowerCase().includes(query))
+    : STATE.employees;
+
+  let thead = `<thead><tr><th class="name-cell">員編</th><th class="name-cell">姓名</th>`;
+  for(let d=1; d<=dayCount; d++) thead += `<th>${d}</th>`;
+  thead += `</tr></thead>`;
+  let tbody = "<tbody>";
+  employees.forEach(emp=>{
+    const days = byEmployee[emp.id] || {};
+    tbody += `<tr><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}</td>`;
+    for(let d=1; d<=dayCount; d++){
+      const code = days[String(d)] || "";
+      const kind = codeKind(code);
+      tbody += `<td><input class="cell-code ${kind}" data-veemp="${emp.id}" data-veday="${d}" value="${code}"></td>`;
+    }
+    tbody += `</tr>`;
+  });
+  tbody += "</tbody>";
+  table.innerHTML = thead+tbody;
+  setStatus("viewEditStatus", `${VIEW_EDIT_GRID.monthKey}，共 ${employees.length} 位員工。改完記得按「儲存修改」，不然重新整理或切換月份會遺失變更。`, "");
+}
+document.getElementById("viewEditMonthSelect").addEventListener("change", ()=>{
+  loadViewEditGrid();
+  renderViewEditGrid();
+});
+document.getElementById("viewEditSearchInput").addEventListener("input", renderViewEditGrid);
+document.getElementById("viewEditGridTable").addEventListener("input",(e)=>{
+  if(!e.target.dataset.veemp || !VIEW_EDIT_GRID) return;
+  const {veemp, veday} = e.target.dataset;
+  VIEW_EDIT_GRID.byEmployee[veemp] = VIEW_EDIT_GRID.byEmployee[veemp] || {};
+  VIEW_EDIT_GRID.byEmployee[veemp][veday] = e.target.value.trim();
+  const kind = codeKind(e.target.value.trim());
+  e.target.className = "cell-code " + kind;
+});
+document.getElementById("saveViewEditBtn").addEventListener("click", async ()=>{
+  if(!VIEW_EDIT_GRID){ setStatus("viewEditStatus","請先選擇月份。","err"); return; }
+  const {monthKey, dayCount, byEmployee} = VIEW_EDIT_GRID;
+  const ok = await saveJSON("schedule:"+monthKey, {dayCount, byEmployee});
+  if(ok){
+    STATE.schedules[monthKey] = {dayCount, byEmployee};
+    setStatus("viewEditStatus", `已儲存 ${monthKey} 的修改。`, "ok");
+    drawReportTable();
+    renderLeaveTab();
+  }else{
+    setStatus("viewEditStatus","儲存失敗，請重試。","err");
+  }
+});
 function dayLeaveHours(dv){
   // backward compatible: older saved data used a single "v" field for 特休(V) hours only
   if(dv && dv.leave) return dv.leave;
@@ -1546,13 +1656,16 @@ async function renderAnnualTab(){
     }).join("");
     const total = opts.sumType==="last" ? values[values.length-1] : rpt.sum(values);
     rowDefs.push({key:rowKey, label, values, sumType:opts.sumType});
-    return `<tr><td class="name-cell" style="text-align:left;${opts.bold?'font-weight:700;':''}">${label}</td>${cells}<td style="border-left:2px solid var(--line-strong);font-weight:700;" data-annual-total="${rowKey}">${rpt.round2(total)}</td></tr>`;
+    const labelHtml = opts.drilldownCode
+      ? `${label} <button class="icon-btn" data-drilldown-code="${opts.drilldownCode}" data-drilldown-year="${rpt.year}" title="查看這個月是誰請的" style="color:var(--teal-deep);">🔍 查看是誰</button>`
+      : label;
+    return `<tr><td class="name-cell" style="text-align:left;${opts.bold?'font-weight:700;':''}">${labelHtml}</td>${cells}<td style="border-left:2px solid var(--line-strong);font-weight:700;" data-annual-total="${rowKey}">${rpt.round2(total)}</td></tr>`;
   }
 
   let tbody = "<tbody>";
   tbody += `<tr><td class="name-cell" style="text-align:left;font-weight:700;background:#EFEEE6;" colspan="${rpt.months.length+2}">請假時數（小時）</td></tr>`;
   rpt.leaveCodes.forEach(c=>{
-    tbody += dataRow("leave_"+c, STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c]);
+    tbody += dataRow("leave_"+c, STATE.config.leaveCodes[c], rpt.leaveHoursByCode[c], {drilldownCode:c});
   });
   tbody += dataRow("leaveTotal", "請假總計", rpt.leaveTotalRow, {bold:true});
 
@@ -1602,6 +1715,40 @@ async function renderAnnualTab(){
   ANNUAL_LAST = {rpt, rowDefs, year: westernYear};
 }
 let ANNUAL_LAST = null;
+
+document.getElementById("annualTable").addEventListener("click", (e)=>{
+  const btn = e.target.closest("[data-drilldown-code]");
+  if(!btn) return;
+  openLeaveDrilldown(btn.dataset.drilldownCode, Number(btn.dataset.drilldownYear));
+});
+function openLeaveDrilldown(code, westernYear){
+  const label = STATE.config.leaveCodes[code] || code;
+  document.getElementById("drilldownTitle").textContent = `「${label}」是誰請的（${westernYear}年）`;
+  document.getElementById("drilldownHint").textContent = "只列出「已匯入班表」的月份；用手動覆蓋填的舊資料月份沒有個人明細，不會出現在這裡。";
+  const months = [1,2,3,4,5,6,7,8,9,10,11,12];
+  let html = "";
+  months.forEach(m=>{
+    const monthKey = `${westernYear}-${String(m).padStart(2,"0")}`;
+    if(!STATE.schedules[monthKey]) return;
+    const rows = computeMonthReport(monthKey);
+    const withThisLeave = rows.filter(r=> (r.leaveTotals[code]||0) > 0);
+    if(withThisLeave.length===0) return;
+    html += `<div style="margin-bottom:12px;"><b>${m}月</b><table style="margin-top:6px;"><thead><tr><th>員編</th><th>姓名</th><th>${label}(天)</th></tr></thead><tbody>`;
+    withThisLeave.forEach(r=>{
+      html += `<tr><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.leaveTotals[code]}</td></tr>`;
+    });
+    html += "</tbody></table></div>";
+  });
+  document.getElementById("drilldownBody").innerHTML = html || `<p class="status-line">這一年裡，已匯入班表的月份中沒有人使用「${label}」。</p>`;
+  document.getElementById("drilldownOverlay").style.display = "flex";
+}
+document.getElementById("closeDrilldownBtn").addEventListener("click", ()=>{
+  document.getElementById("drilldownOverlay").style.display = "none";
+});
+document.getElementById("drilldownOverlay").addEventListener("click",(e)=>{
+  if(e.target.id==="drilldownOverlay") document.getElementById("drilldownOverlay").style.display = "none";
+});
+
 
 document.getElementById("annualTable").addEventListener("change", async (e)=>{
   const rowKey = e.target.dataset.annualRow;
