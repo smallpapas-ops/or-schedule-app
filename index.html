@@ -290,6 +290,10 @@
           <label>選擇月份</label>
           <select id="reportMonthSelect"></select>
         </div>
+        <div class="field">
+          <label>搜尋員編或姓名</label>
+          <input type="text" id="reportSearchInput" placeholder="輸入員編或姓名..." style="width:160px;">
+        </div>
         <button class="btn secondary" id="exportCsvBtn">匯出 CSV</button>
       </div>
       <div class="table-wrap" style="margin-top:14px;">
@@ -1200,7 +1204,11 @@ function drawReportTable(){
   const monthKey = document.getElementById("reportMonthSelect").value;
   const table = document.getElementById("reportTable");
   if(!monthKey){ table.innerHTML = "<tr><td>尚未有已儲存的月份班表。</td></tr>"; return; }
-  const rows = computeMonthReport(monthKey);
+  let rows = computeMonthReport(monthKey);
+  const query = document.getElementById("reportSearchInput").value.trim().toLowerCase();
+  if(query){
+    rows = rows.filter(r=> r.emp.id.toLowerCase().includes(query) || r.emp.name.toLowerCase().includes(query));
+  }
   const leaveCodes = Object.keys(STATE.config.leaveCodes);
   const divider = "border-left:2px solid var(--line-strong);";
   let thead = `<thead>
@@ -1230,6 +1238,7 @@ function drawReportTable(){
   table.innerHTML = thead+tbody;
   setStatus("reportStatus", `共 ${rows.length} 位員工，資料月份 ${monthKey}。假別天數已自動併入「調整」視窗手動輸入的小時數；「異動後」= 排定時數 + 加班(補休A+給薪B) − 各假別使用時數 − 補休使用時數。`, "");
 }
+document.getElementById("reportSearchInput").addEventListener("input", drawReportTable);
 document.getElementById("reportTable").addEventListener("click",(e)=>{
   const empId = e.target.closest("[data-adjust]") ? e.target.closest("[data-adjust]").dataset.adjust : null;
   if(empId) openAdjustModal(empId);
