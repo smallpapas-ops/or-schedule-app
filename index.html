@@ -1372,8 +1372,8 @@ function adjustRowKeyToLabel(){
   ADJUST_ROW_DEFS = [
     {key:"otComp", label:"加班-轉補休(補休A)"},
     {key:"otPaid", label:"加班-領薪(給薪B)"},
-    ...leaveCodes.map(code=>({key:"leave_"+code, label:STATE.config.leaveCodes[code]+"使用"})),
-    {key:"comp", label:"補休使用"}
+    {key:"comp", label:"補休使用"},
+    ...leaveCodes.map(code=>({key:"leave_"+code, label:STATE.config.leaveCodes[code]+"使用"}))
   ];
 }
 
