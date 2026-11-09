@@ -172,6 +172,7 @@
     <button data-tab="import">匯入班表</button>
     <button data-tab="report">本月報表</button>
     <button data-tab="editschedule">查閱及編輯班表</button>
+    <button data-tab="streak">連續休假統計</button>
     <button data-tab="leave">特休總覽</button>
     <button data-tab="annual">年度統計報表</button>
     <button data-tab="settings">代碼設定</button>
@@ -301,6 +302,21 @@
         <table id="reportTable"></table>
       </div>
       <p class="status-line" id="reportStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ TAB: CONSECUTIVE DAYS OFF ============ -->
+  <section class="panel" id="panel-streak">
+    <div class="card">
+      <h2>連續休假統計</h2>
+      <p class="hint">統計每人在所選年度中，「連續休假」達指定天數以上的次數。休假＝休／例／國等休息日，以及 V、公、喪、婚、產檢、生理…等所有請假代碼；上班班別則中斷連續。相鄰月份的班表會自動接續計算（跨月連休算一次），中間缺少月份則視為中斷。</p>
+      <div class="row">
+        <div class="field"><label>年度</label><select id="streakYearSelect"></select></div>
+        <div class="field"><label>連續天數至少</label><input type="number" id="streakMinDays" value="5" min="2" max="31" style="width:70px;"></div>
+        <div class="field"><label>搜尋員編或姓名</label><input type="text" id="streakSearch" placeholder="輸入員編或姓名..." style="width:160px;"></div>
+      </div>
+      <div class="status-line" id="streakStatus"></div>
+      <div class="table-wrap"><table id="streakTable"></table></div>
     </div>
   </section>
 
@@ -758,6 +774,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn=>{
     document.getElementById("panel-"+btn.dataset.tab).classList.add("active");
     if(btn.dataset.tab==="report") renderReportTab();
     if(btn.dataset.tab==="editschedule"){ populateViewEditMonths(); loadViewEditGrid(); renderViewEditGrid(); }
+    if(btn.dataset.tab==="streak"){ populateStreakYears(); renderStreakTab(); }
     if(btn.dataset.tab==="leave") renderLeaveTab();
     if(btn.dataset.tab==="annual") renderAnnualTab();
     if(btn.dataset.tab==="staffcap"){ renderCapTab(); renderOrCalcTab(); }
@@ -2241,6 +2258,67 @@ async function reloadAllFromStorage(){
   renderLeaveTab();
 }
 init();
+
+/* ---------------- consecutive days-off statistics ---------------- */
+function populateStreakYears(){
+  const sel=document.getElementById("streakYearSelect"); const prev=sel.value;
+  const years=[...new Set(getSortedMonthKeys().map(k=>k.slice(0,4)))];
+  sel.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join("");
+  if(years.includes(prev)) sel.value=prev; else if(years.length) sel.value=years[years.length-1];
+}
+function computeStreaks(year,minDays){
+  const months=getSortedMonthKeys().filter(k=>k.startsWith(year+"-"));
+  const res={};
+  STATE.employees.forEach(emp=>{
+    const runs=[]; let cur=null; let prevKey=null;
+    const close=()=>{ if(cur && cur.len>=minDays) runs.push(cur); cur=null; };
+    months.forEach(mk=>{
+      const sch=STATE.schedules[mk]; const [yy,mm]=mk.split("-").map(Number);
+      if(prevKey){ const [py,pm]=prevKey.split("-").map(Number); if(py*12+pm+1!==yy*12+mm) close(); }
+      const days=(sch.byEmployee&&sch.byEmployee[emp.id])||{};
+      for(let d=1; d<=sch.dayCount; d++){
+        const code=days[String(d)];
+        const k=codeKind(code);
+        const off=(k==="rest"||k==="leave") && !(code===undefined||code==="");
+        if(off){ if(!cur) cur={start:mk+"-"+String(d).padStart(2,"0"),len:0}; cur.len++; cur.end=mk+"-"+String(d).padStart(2,"0"); }
+        else close();
+      }
+      prevKey=mk;
+    });
+    close();
+    res[emp.id]=runs;
+  });
+  return {res,months};
+}
+function renderStreakTab(){
+  const year=document.getElementById("streakYearSelect").value;
+  const tbl=document.getElementById("streakTable");
+  if(!year){ tbl.innerHTML=""; setStatus("streakStatus","尚無已儲存的班表。","warn"); return; }
+  const minDays=Math.max(2,Number(document.getElementById("streakMinDays").value)||5);
+  const q=document.getElementById("streakSearch").value.trim().toLowerCase();
+  const {res,months}=computeStreaks(year,minDays);
+  const fmt=r=>r.start.slice(5)+" ~ "+r.end.slice(5)+"（"+r.len+"天）";
+  const maxCnt=STATE.employees.reduce((m,e)=>Math.max(m,(res[e.id]||[]).length),0);
+  const maxLen=STATE.employees.reduce((m,e)=>Math.max(m,...(res[e.id]||[]).map(r=>r.len),0),0);
+  let total=0, rows="";
+  STATE.employees.forEach(emp=>{
+    if(q && !(String(emp.id).toLowerCase().includes(q)||String(emp.name).toLowerCase().includes(q))) return;
+    const runs=res[emp.id]||[]; total+=runs.length;
+    const longest=runs.reduce((m,r)=>Math.max(m,r.len),0);
+    const topCnt = maxCnt>0 && runs.length===maxCnt;
+    const topLen = maxLen>0 && longest===maxLen;
+    const alpha = maxCnt>0 ? (runs.length/maxCnt) : 0;
+    const cntStyle = runs.length ? `background:rgba(192,57,43,${(0.12+0.5*alpha).toFixed(2)});${topCnt?"color:#fff;background:#C0392B;":""}` : "";
+    const lenStyle = topLen ? "background:#E6A817;color:#fff;font-weight:700;" : "";
+    const rowStyle = topCnt ? "background:#FDECEA;" : "";
+    rows+=`<tr style="${rowStyle}"><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}${topCnt?" 🏆":""}</td><td style="font-family:var(--font-mono);">${emp.hire||"—"}</td><td style="${cntStyle}"><b>${runs.length}</b></td><td style="${lenStyle}">${longest||"—"}</td><td style="text-align:left;">${runs.map(fmt).join("<br>")||"—"}</td></tr>`;
+  });
+  tbl.innerHTML=`<thead><tr><th>員編</th><th>姓名</th><th>到職日</th><th>次數</th><th>最長連休(天)</th><th>日期區間</th></tr></thead><tbody>${rows}</tbody>`;
+  const legend=maxCnt>0?`　最多：${maxCnt} 次（紅底🏆）；最長連休：${maxLen} 天（黃底）。`:"";
+  setStatus("streakStatus",`${year}年已儲存 ${months.length} 個月（${months.map(m=>m.slice(5)).join("、")}月）；連休≥${minDays}天共 ${total} 次。${legend}`,"ok");
+}
+["streakYearSelect","streakMinDays"].forEach(id=>document.getElementById(id).addEventListener("change",renderStreakTab));
+document.getElementById("streakSearch").addEventListener("input",renderStreakTab);
 </script>
 </body>
 </html>
