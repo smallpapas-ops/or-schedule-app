@@ -2235,6 +2235,7 @@ async function pushAllToStorage(){
   }
 }
 async function reloadAllFromStorage(){
+  STREAK_NOTES = null;
   STATE.employees = await loadJSON("employees", STATE.employees);
   STATE.config = await loadJSON("leaveConfig", STATE.config);
   STATE.schedules = {};
@@ -2290,14 +2291,32 @@ function computeStreaks(year,minDays){
   });
   return {res,months};
 }
-function renderStreakTab(){
+let STREAK_NOTES = null;
+async function loadStreakNotes(){
+  if(!STREAK_NOTES) STREAK_NOTES = await loadJSON("streakNotes", {});
+  return STREAK_NOTES;
+}
+async function toggleStreakNote(key){
+  await loadStreakNotes();
+  if(STREAK_NOTES[key]) delete STREAK_NOTES[key]; else STREAK_NOTES[key]="未報備";
+  await saveJSON("streakNotes", STREAK_NOTES);
+  renderStreakTab();
+}
+async function renderStreakTab(){
+  await loadStreakNotes();
   const year=document.getElementById("streakYearSelect").value;
   const tbl=document.getElementById("streakTable");
   if(!year){ tbl.innerHTML=""; setStatus("streakStatus","尚無已儲存的班表。","warn"); return; }
   const minDays=Math.max(2,Number(document.getElementById("streakMinDays").value)||5);
   const q=document.getElementById("streakSearch").value.trim().toLowerCase();
   const {res,months}=computeStreaks(year,minDays);
-  const fmt=r=>r.start.slice(5)+" ~ "+r.end.slice(5)+"（"+r.len+"天）";
+  let flagged=0;
+  const fmtE=(r,empId)=>{
+    const key=empId+"|"+r.start+"|"+r.end;
+    const on=!!STREAK_NOTES[key]; if(on) flagged++;
+    const st=on?"background:#C0392B;color:#fff;border-color:#C0392B;":"background:#fff;color:inherit;";
+    return `<button type="button" class="streak-run" data-key="${key}" title="點一下標記/取消「未報備」" style="${st}cursor:pointer;border:1px solid var(--line-strong);border-radius:6px;padding:3px 8px;margin:2px 0;font:inherit;">${r.start.slice(5)} ~ ${r.end.slice(5)}（${r.len}天）${on?" ⚠ 未報備":""}</button>`;
+  };
   const maxCnt=STATE.employees.reduce((m,e)=>Math.max(m,(res[e.id]||[]).length),0);
   const maxLen=STATE.employees.reduce((m,e)=>Math.max(m,...(res[e.id]||[]).map(r=>r.len),0),0);
   let total=0, rows="";
@@ -2311,10 +2330,11 @@ function renderStreakTab(){
     const cntStyle = runs.length ? `background:rgba(192,57,43,${(0.12+0.5*alpha).toFixed(2)});${topCnt?"color:#fff;background:#C0392B;":""}` : "";
     const lenStyle = topLen ? "background:#E6A817;color:#fff;font-weight:700;" : "";
     const rowStyle = topCnt ? "background:#FDECEA;" : "";
-    rows+=`<tr style="${rowStyle}"><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}${topCnt?" 🏆":""}</td><td style="font-family:var(--font-mono);">${emp.hire||"—"}</td><td style="${cntStyle}"><b>${runs.length}</b></td><td style="${lenStyle}">${longest||"—"}</td><td style="text-align:left;">${runs.map(fmt).join("<br>")||"—"}</td></tr>`;
+    rows+=`<tr style="${rowStyle}"><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}${topCnt?" 🏆":""}</td><td style="font-family:var(--font-mono);">${emp.hire||"—"}</td><td style="${cntStyle}"><b>${runs.length}</b></td><td style="${lenStyle}">${longest||"—"}</td><td style="text-align:left;">${runs.map(r=>fmtE(r,emp.id)).join("<br>")||"—"}</td></tr>`;
   });
   tbl.innerHTML=`<thead><tr><th>員編</th><th>姓名</th><th>到職日</th><th>次數</th><th>最長連休(天)</th><th>日期區間</th></tr></thead><tbody>${rows}</tbody>`;
-  const legend=maxCnt>0?`　最多：${maxCnt} 次（紅底🏆）；最長連休：${maxLen} 天（黃底）。`:"";
+  tbl.querySelectorAll(".streak-run").forEach(b=>b.addEventListener("click",()=>toggleStreakNote(b.dataset.key)));
+  const legend=(flagged?`　未報備：${flagged} 段。`:"　（點日期區間可標記「未報備」）")+(maxCnt>0?`　最多：${maxCnt} 次（紅底🏆）；最長連休：${maxLen} 天（黃底）。`:"");
   setStatus("streakStatus",`${year}年已儲存 ${months.length} 個月（${months.map(m=>m.slice(5)).join("、")}月）；連休≥${minDays}天共 ${total} 次。${legend}`,"ok");
 }
 ["streakYearSelect","streakMinDays"].forEach(id=>document.getElementById(id).addEventListener("change",renderStreakTab));
