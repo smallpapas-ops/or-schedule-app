@@ -2291,6 +2291,31 @@ function computeStreaks(year,minDays){
   });
   return {res,months};
 }
+function annualSummaryFor(emp, ref){
+  const baseDate = effectiveEntBaseDate(emp);
+  const {start,end} = entitlementYearWindow(baseDate, ref);
+  const entitlement = entitlementDaysFromMonths(monthsBetween(baseDate, ref));
+  let used = 0;
+  Object.entries(STATE.schedules).forEach(([monthKey, sched])=>{
+    const [y,m] = monthKey.split("-").map(Number);
+    const days = (sched.byEmployee||{})[emp.id] || {};
+    Object.entries(days).forEach(([dayStr, code])=>{
+      const c = (code||"").trim().replace(/★/g,"").trim();
+      if(c !== "V") return;
+      const d = new Date(y, m-1, Number(dayStr));
+      if(d >= start && d < end) used++;
+    });
+    const empAdj = ((STATE.adjustments[monthKey]||{})[emp.id]) || {};
+    Object.entries(empAdj).forEach(([dayStr, dv])=>{
+      const vHours = Number(dayLeaveHours(dv)["V"])||0;
+      if(!vHours) return;
+      const d = new Date(y, m-1, Number(dayStr));
+      if(d >= start && d < end) used += vHours / (STATE.config.hoursPerLeave || 8);
+    });
+  });
+  used = Math.round(used*100)/100;
+  return {entitlement, used, remaining: Math.round((entitlement-used)*100)/100};
+}
 let STREAK_NOTES = null;
 async function loadStreakNotes(){
   if(!STREAK_NOTES) STREAK_NOTES = await loadJSON("streakNotes", {});
@@ -2310,6 +2335,7 @@ async function renderStreakTab(){
   const minDays=Math.max(2,Number(document.getElementById("streakMinDays").value)||5);
   const q=document.getElementById("streakSearch").value.trim().toLowerCase();
   const {res,months}=computeStreaks(year,minDays);
+  const streakRef = parseDate(document.getElementById("refDate").value || fmtDate(new Date()));
   let flagged=0;
   const fmtE=(r,empId)=>{
     const key=empId+"|"+r.start+"|"+r.end;
@@ -2324,15 +2350,16 @@ async function renderStreakTab(){
     if(q && !(String(emp.id).toLowerCase().includes(q)||String(emp.name).toLowerCase().includes(q))) return;
     const runs=res[emp.id]||[]; total+=runs.length;
     const longest=runs.reduce((m,r)=>Math.max(m,r.len),0);
+    const as = annualSummaryFor(emp, streakRef);
     const topCnt = maxCnt>0 && runs.length===maxCnt;
     const topLen = maxLen>0 && longest===maxLen;
     const alpha = maxCnt>0 ? (runs.length/maxCnt) : 0;
     const cntStyle = runs.length ? `background:rgba(192,57,43,${(0.12+0.5*alpha).toFixed(2)});${topCnt?"color:#fff;background:#C0392B;":""}` : "";
     const lenStyle = topLen ? "background:#E6A817;color:#fff;font-weight:700;" : "";
     const rowStyle = topCnt ? "background:#FDECEA;" : "";
-    rows+=`<tr style="${rowStyle}"><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}${topCnt?" 🏆":""}</td><td style="font-family:var(--font-mono);">${emp.hire||"—"}</td><td style="${cntStyle}"><b>${runs.length}</b></td><td style="${lenStyle}">${longest||"—"}</td><td style="text-align:left;">${runs.map(r=>fmtE(r,emp.id)).join("<br>")||"—"}</td></tr>`;
+    rows+=`<tr style="${rowStyle}"><td class="name-cell">${emp.id}</td><td class="name-cell">${emp.name}${topCnt?" 🏆":""}</td><td style="font-family:var(--font-mono);">${emp.hire||"—"}</td><td>${as.entitlement}</td><td>${as.used}</td><td style="${as.remaining<0?"color:#A23B32;font-weight:700;":""}">${as.remaining}</td><td style="${cntStyle}"><b>${runs.length}</b></td><td style="${lenStyle}">${longest||"—"}</td><td style="text-align:left;">${runs.map(r=>fmtE(r,emp.id)).join("<br>")||"—"}</td></tr>`;
   });
-  tbl.innerHTML=`<thead><tr><th>員編</th><th>姓名</th><th>到職日</th><th>次數</th><th>最長連休(天)</th><th>日期區間</th></tr></thead><tbody>${rows}</tbody>`;
+  tbl.innerHTML=`<thead><tr><th>員編</th><th>姓名</th><th>到職日</th><th>年假天數</th><th>已用V</th><th>剩餘</th><th>次數</th><th>最長連休(天)</th><th>日期區間</th></tr></thead><tbody>${rows}</tbody>`;
   tbl.querySelectorAll(".streak-run").forEach(b=>b.addEventListener("click",()=>toggleStreakNote(b.dataset.key)));
   const legend=(flagged?`　未報備：${flagged} 段。`:"　（點日期區間可標記「未報備」）")+(maxCnt>0?`　最多：${maxCnt} 次（紅底🏆）；最長連休：${maxLen} 天（黃底）。`:"");
   setStatus("streakStatus",`${year}年已儲存 ${months.length} 個月（${months.map(m=>m.slice(5)).join("、")}月）；連休≥${minDays}天共 ${total} 次。${legend}`,"ok");
